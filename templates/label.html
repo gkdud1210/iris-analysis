@@ -263,6 +263,14 @@
                   onclick="detectCollarette()" title="자율신경환(콜라렛) 위치 자동 감지">
             <i class="bi bi-record-circle"></i> 신경환
           </button>
+          <span id="collSensWrap" style="display:none;align-items:center;gap:3px;font-size:0.62rem;color:#555">
+            <i class="bi bi-brightness-high" style="font-size:0.7rem"></i>
+            <input type="range" id="collSensSlider" min="0" max="30" value="3"
+                   style="width:55px;accent-color:#6366f1;cursor:pointer"
+                   oninput="onCollSensChange(this.value)"
+                   title="밝기 감도 (낮을수록 민감)">
+            <span id="collSensVal" style="min-width:18px">3</span>
+          </span>
           <button class="btn btn-xs" id="pupilShapeBtn"
                   onclick="detectPupilShape()" title="동공 실제 모양 정밀 감지 (불규칙 윤곽)">
             <i class="bi bi-circle"></i> 동공
@@ -411,6 +419,7 @@ let showColorDots   = false;
 let showColorFill   = true;
 let showIrisZones       = false;
 let selectedZones       = null; // RADIAL_ZONES 정의 후 초기화
+let collSensThreshold   = 3;     // 신경환 밝기 기울기 최소 임계값 (0=민감, 30=둔감)
 let showAutoNerveGuide  = false; // 자율신경환 가이드 원
 let autoNerveOpacity    = 0.9;   // 불투명도 0~1
 let autoNerveLineWidth  = 1.5;   // 선 두께 px
@@ -2233,6 +2242,8 @@ function detectCollarette() {
   if (showCollRing) {
     showCollRing = false; collRing = null;
     if (btn) { btn.classList.remove('active-dot-btn'); btn.innerHTML = '<i class="bi bi-record-circle"></i> 신경환'; }
+    const wrap = document.getElementById('collSensWrap');
+    if (wrap) wrap.style.display = 'none';
     _drawIrisColorMap();
     return;
   }
@@ -2282,6 +2293,8 @@ function detectCollarette() {
       const g = Math.abs(sm[si] - sm[si-1]);
       if (g > peakG) { peakG = g; peakSi = si; }
     }
+    // 기울기가 임계값 미만이면 탐색 구간 중앙(기본 위치)으로 대체
+    if (peakG < collSensThreshold) peakSi = Math.round((lo+hi)/2);
     rawRadii[ai] = peakSi / (N_STEPS - 1);
   }
 
@@ -2304,8 +2317,17 @@ function detectCollarette() {
     btn.classList.add('active-dot-btn');
     btn.innerHTML = '<i class="bi bi-record-circle-fill"></i> 신경환 끄기';
   }
+  const wrap = document.getElementById('collSensWrap');
+  if (wrap) wrap.style.display = 'inline-flex';
   _drawIrisColorMap();
   toast(`자율신경환 감지 — 평균 ${(avgR*100).toFixed(0)}%, 범위 ${(minR*100).toFixed(0)}–${(maxR*100).toFixed(0)}%`, 'success', 5000);
+}
+
+function onCollSensChange(val) {
+  collSensThreshold = Number(val);
+  const label = document.getElementById('collSensVal');
+  if (label) label.textContent = val;
+  if (showCollRing) detectCollarette(); // 껐다 켜서 재감지
 }
 
 function _hex(r, g, b) {
