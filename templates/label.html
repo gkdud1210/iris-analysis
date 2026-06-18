@@ -425,7 +425,7 @@ let showPupilShape    = false; // 동공 정밀 윤곽
 let pupilShape        = null;  // { points: Float32Array(360), N }
 let eyelidMask        = null;  // Uint8Array(360): 1=눈꺼풀 차폐 각도 (색상 필터링용)
 let eyelidPolygons    = null;  // [{coords:[[nx,ny],...], is_upper:bool}] 라벨 원본 좌표
-let showEyelidMask    = true;
+let showEyelidMask    = false;
 
 // 눈꺼풀/피부 색상 감지
 // 핵심: 밝음(lum>175) + HSV채도 0.06~0.42 → 빛반사(sat≈0)와 구분
@@ -1190,6 +1190,7 @@ async function analyzeIrisColors() {
   try {
     const labelRes = await fetch(`/api/eyelid/from_labels/${IMAGE_ID}`).then(r => r.json());
     if (labelRes.count > 0) {
+      eyelidPolygons = labelRes.labels;
       _applyEyelidMask(labelRes.mask);
       return;
     }
@@ -1910,8 +1911,8 @@ function _applyEyelidMask(maskArray) {
 async function detectEyelidMask() {
   const btn = document.getElementById('eyelidBtn');
 
-  // 토글 OFF
-  if (showEyelidMask) {
+  // 토글 OFF: 버튼 텍스트가 "끄기" 상태일 때만 끔
+  if (showEyelidMask && btn && btn.innerHTML.includes('끄기')) {
     showEyelidMask = false; eyelidMask = null; eyelidPolygons = null;
     if (btn) { btn.classList.remove('active-dot-btn'); btn.innerHTML = '<i class="bi bi-eye-slash"></i> 눈꺼풀'; }
     _buildColorPanel(colorSamples);
