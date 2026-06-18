@@ -24,6 +24,17 @@
   <!-- ── 좌: 이미지 + 캔버스 ────────────────────────────────────────────── -->
   <div class="col-xl-7 col-lg-7" id="imageCol">
 
+    <!-- 항상 표시되는 토글 버튼 -->
+    <div class="mb-2 d-flex justify-content-end">
+      <button id="imgCollapseBtn" onclick="toggleImagePanel()"
+              class="btn btn-sm btn-outline-secondary"
+              style="font-size:0.72rem;padding:2px 10px"
+              title="이미지 접기/펼치기">
+        <i class="bi bi-chevron-up" id="imgCollapseIcon"></i>
+        <span id="imgCollapseTxt">이미지 접기</span>
+      </button>
+    </div>
+
     <!-- 접힐 때 숨겨지는 영역 -->
     <div id="imageColContent">
     <!-- 툴바 -->
@@ -108,15 +119,7 @@
 
     <!-- 이미지 + 캔버스 -->
     <div class="card">
-      <div class="card-header py-1 px-2 d-flex justify-content-between align-items-center" style="background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:0.75rem;color:#64748b">
-        <span><i class="bi bi-eye me-1"></i>홍채 이미지</span>
-        <button id="imgCollapseBtn" onclick="toggleImagePanel()"
-                style="border:none;background:none;cursor:pointer;font-size:0.72rem;color:#64748b;padding:0 4px"
-                title="이미지 접기/펼치기">
-          <i class="bi bi-chevron-up" id="imgCollapseIcon"></i> 접기
-        </button>
-      </div>
-      <div id="imageCardBody" class="card-body p-0" style="line-height:0;position:relative;border-radius:0 0 12px 12px;overflow:hidden">
+      <div id="imageCardBody" class="card-body p-0" style="line-height:0;position:relative;border-radius:12px;overflow:hidden">
         <img id="irisImg"
              src="/uploads/{{ image.filename }}"
              alt="iris"
@@ -1381,6 +1384,7 @@ function _drawIrisColorMap() {
   const SIZE  = Math.max(300, Math.min(1000, Math.round(ir * 2)));
   mapC.width  = SIZE; mapC.height = SIZE;
   mapC.style.width  = '100%';
+  mapC.style.maxWidth = '480px';
   mapC.style.height = 'auto';
 
   const mc    = mapC.getContext('2d');
@@ -2627,22 +2631,21 @@ function toggleImagePanel() {
   const content  = document.getElementById('imageColContent');
   const imgCol   = document.getElementById('imageCol');
   const toolCol  = document.getElementById('toolCol');
-  const btn      = document.getElementById('imgCollapseBtn');
+  const icon     = document.getElementById('imgCollapseIcon');
+  const txt      = document.getElementById('imgCollapseTxt');
 
   if (_imgCollapsed) {
     content.style.display = 'none';
     imgCol.className  = 'col-auto';
     toolCol.className = 'col';
-    btn.innerHTML = '<i class="bi bi-chevron-right"></i> 펼치기';
-    btn.style.writingMode = 'vertical-rl';
-    btn.style.padding = '8px 4px';
+    icon.className    = 'bi bi-chevron-down';
+    if (txt) txt.textContent = '이미지 펼치기';
   } else {
     content.style.display = '';
     imgCol.className  = 'col-xl-7 col-lg-7';
     toolCol.className = 'col-xl-5 col-lg-5';
-    btn.innerHTML = '<i class="bi bi-chevron-up"></i> 접기';
-    btn.style.writingMode = '';
-    btn.style.padding = '';
+    icon.className    = 'bi bi-chevron-up';
+    if (txt) txt.textContent = '이미지 접기';
     setTimeout(() => { const r = imgEl.getBoundingClientRect(); canvas.width=r.width; canvas.height=r.height; render(); }, 50);
   }
 }
