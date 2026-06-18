@@ -246,130 +246,184 @@
       </div>
     </div>
 
-    <!-- 홍채 색상 분석 패널 (접기 가능, 분석 후 표시) -->
+    <!-- 홍채 색상 분석 패널 -->
+    <style>
+      #colorPanel { overflow: visible !important; }
+      #colorStickyBar {
+        position: sticky;
+        top: 0;
+        z-index: 200;
+        background: #fff;
+        border-radius: var(--bs-card-inner-border-radius, 0.35rem) var(--bs-card-inner-border-radius, 0.35rem) 0 0;
+        box-shadow: 0 2px 8px rgba(124,58,237,0.08);
+      }
+      .wb-slider { -webkit-appearance:none; appearance:none; width:100%; height:8px; border-radius:4px; outline:none; cursor:pointer; border:none; background:transparent; }
+      .wb-slider::-webkit-slider-thumb { -webkit-appearance:none; width:18px; height:18px; border-radius:50%; background:#fff; border:2px solid rgba(0,0,0,0.18); box-shadow:0 1px 5px rgba(0,0,0,0.28); cursor:pointer; transition:transform .1s; }
+      .wb-slider::-webkit-slider-thumb:hover { transform:scale(1.15); }
+      .wb-slider::-moz-range-thumb { width:18px; height:18px; border-radius:50%; background:#fff; border:2px solid rgba(0,0,0,0.18); box-shadow:0 1px 5px rgba(0,0,0,0.28); cursor:pointer; }
+      .wb-track { flex:1; height:8px; border-radius:4px; position:relative; }
+    </style>
     <div class="card mb-3" id="colorPanel" style="display:none">
-      <div class="card-header d-flex align-items-center"
-           style="background:linear-gradient(135deg,#FDF4FF,#F5F3FF)">
-        <i class="bi bi-palette-fill me-2" style="color:#7C3AED"></i>
-        <span class="fw-semibold">홍채 색상 분석</span>
-        <div class="ms-auto d-flex gap-1 align-items-center">
-          <button class="btn btn-xs color-dot-toggle" id="dotToggleBtn"
-                  onclick="toggleColorDots()" title="캔버스에 점 표시/숨기기">
-            <i class="bi bi-grid-3x3"></i> 점 보이기
-          </button>
-          <button class="btn btn-xs color-dot-toggle active-dot-btn" id="colorFillBtn"
-                  onclick="toggleColorFill()" title="점에 홍채 색상 채우기">
-            <i class="bi bi-palette-fill"></i> 색상 끄기
-          </button>
-          <button class="btn btn-xs" id="zoneToggleBtn"
-                  onclick="toggleZones()" title="구역 구분표 표시">
-            <i class="bi bi-pie-chart"></i> 구분표
-          </button>
-          <button class="btn btn-xs" id="contrastToggleBtn"
-                  onclick="toggleContrastMap()" title="주변색과 대비되는 부위 강조">
-            <i class="bi bi-eye"></i> 대비
-          </button>
-          <button class="btn btn-xs" id="brightnessToggleBtn"
-                  onclick="toggleBrightnessMap()" title="대표색 기준 밝기 단계 분포 (+2/+1/기준/-1/-2)">
-            <i class="bi bi-brightness-high"></i> 밝기
-          </button>
-          <span id="brightnessAlphaWrap" style="display:none;align-items:center;gap:3px;font-size:0.62rem;color:#555">
-            <input type="range" id="brightnessAlphaSlider" min="10" max="100" value="62"
-                   style="width:60px;accent-color:#6366f1;cursor:pointer"
-                   oninput="onBrightnessAlphaChange(this.value)"
-                   title="밝기 오버레이 강도">
-            <span id="brightnessAlphaVal" style="min-width:22px">62%</span>
-          </span>
-          <button class="btn btn-xs" id="collRingBtn"
-                  onclick="detectCollarette()" title="자율신경환(콜라렛) 위치 자동 감지">
-            <i class="bi bi-record-circle"></i> 신경환
-          </button>
-          <button class="btn btn-xs" id="pupilShapeBtn"
-                  onclick="detectPupilShape()" title="동공 실제 모양 정밀 감지 (불규칙 윤곽)">
-            <i class="bi bi-circle"></i> 동공
-          </button>
-          <button class="btn btn-xs" id="eyelidBtn"
-                  onclick="detectEyelidMask()" title="눈꺼풀 차폐 영역 감지 및 제외">
-            <i class="bi bi-eye-slash"></i> 눈꺼풀
-          </button>
-          <button class="btn btn-xs" onclick="exportColorJSON()" title="JSON 내보내기">
-            <i class="bi bi-download"></i>
-          </button>
-          <button class="btn btn-xs ms-1" data-bs-toggle="collapse" data-bs-target="#colorPanelBody"
-                  title="접기/펼치기" style="min-width:28px">
-            <i class="bi bi-chevron-up collapse-chevron"></i>
-          </button>
-        </div>
-      </div>
-      <!-- 구분표 링 개별 선택 + 자율신경환 가이드 (구분표 ON일 때만 표시) -->
-      <div id="zoneRingBtns" style="display:none;padding:5px 10px;background:#f8f5ff;border-bottom:1px solid #e9e0f8">
-        <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">
-          <div id="zoneRingBtnGroup" style="display:flex;flex-wrap:wrap;gap:4px"></div>
-          <button id="autoNerveGuideBtn" class="btn btn-xs"
-                  onclick="toggleAutoNerveGuide()"
-                  style="border-left:3px solid #a78bfa;padding:2px 8px;font-size:0.68rem;border-radius:12px"
-                  title="영양·흡수 링 중간선 = 자율신경환 기준 위치">
-            자율신경환
-          </button>
-          <!-- 자율신경환 조절 슬라이더 -->
-          <div id="autoNerveControls" style="display:none;margin-left:6px;display:none;align-items:center;gap:8px;font-size:0.62rem;color:#555">
-            <label style="display:flex;align-items:center;gap:3px;white-space:nowrap">
-              불투명도
-              <input type="range" min="0" max="100" value="90" step="5"
-                     style="width:60px;accent-color:#a78bfa"
-                     oninput="autoNerveOpacity=this.value/100;document.getElementById('autoNerveOpacityVal').textContent=this.value+'%';_drawIrisColorMap()">
-              <span id="autoNerveOpacityVal">90%</span>
-            </label>
-            <label style="display:flex;align-items:center;gap:3px;white-space:nowrap">
-              두께
-              <input type="range" min="1" max="10" value="2" step="0.5"
-                     style="width:50px;accent-color:#a78bfa"
-                     oninput="autoNerveLineWidth=+this.value;document.getElementById('autoNerveWidthVal').textContent=this.value+'px';_drawIrisColorMap()">
-              <span id="autoNerveWidthVal">2px</span>
-            </label>
-            <label style="display:flex;align-items:center;gap:3px;white-space:nowrap">
-              흐림
-              <input type="range" min="0" max="20" value="0" step="1"
-                     style="width:50px;accent-color:#a78bfa"
-                     oninput="autoNerveBlur=+this.value;document.getElementById('autoNerveBlurVal').textContent=this.value+'px';_drawIrisColorMap()">
-              <span id="autoNerveBlurVal">0px</span>
-            </label>
+      <!-- ── 스크롤 고정 컨트롤 바 ── -->
+      <div id="colorStickyBar">
+        <div class="card-header d-flex align-items-center flex-wrap gap-1"
+             style="background:linear-gradient(135deg,#FDF4FF,#F5F3FF);row-gap:4px">
+          <i class="bi bi-palette-fill me-1" style="color:#7C3AED"></i>
+          <span class="fw-semibold me-1">홍채 색상 분석</span>
+          <div class="d-flex flex-wrap gap-1 align-items-center ms-auto">
+            <button class="btn btn-xs color-dot-toggle" id="dotToggleBtn"
+                    onclick="toggleColorDots()" title="캔버스에 점 표시/숨기기">
+              <i class="bi bi-grid-3x3"></i> 점 보이기
+            </button>
+            <button class="btn btn-xs color-dot-toggle active-dot-btn" id="colorFillBtn"
+                    onclick="toggleColorFill()" title="점에 홍채 색상 채우기">
+              <i class="bi bi-palette-fill"></i> 색상 끄기
+            </button>
+            <button class="btn btn-xs" id="zoneToggleBtn"
+                    onclick="toggleZones()" title="구역 구분표 표시">
+              <i class="bi bi-pie-chart"></i> 구분표
+            </button>
+            <button class="btn btn-xs" id="contrastToggleBtn"
+                    onclick="toggleContrastMap()" title="주변색과 대비되는 부위 강조">
+              <i class="bi bi-eye"></i> 대비
+            </button>
+            <button class="btn btn-xs" id="brightnessToggleBtn"
+                    onclick="toggleBrightnessMap()" title="대표색 기준 밝기 단계 분포 (+2/+1/기준/-1/-2)">
+              <i class="bi bi-brightness-high"></i> 밝기
+            </button>
+            <span id="brightnessAlphaWrap" style="display:none;align-items:center;gap:3px;font-size:0.62rem;color:#555">
+              <input type="range" id="brightnessAlphaSlider" min="10" max="100" value="62"
+                     style="width:60px;accent-color:#6366f1;cursor:pointer"
+                     oninput="onBrightnessAlphaChange(this.value)"
+                     title="밝기 오버레이 강도">
+              <span id="brightnessAlphaVal" style="min-width:22px">62%</span>
+            </span>
+            <button class="btn btn-xs" id="collRingBtn"
+                    onclick="detectCollarette()" title="자율신경환(콜라렛) 위치 자동 감지">
+              <i class="bi bi-record-circle"></i> 신경환
+            </button>
+            <button class="btn btn-xs" id="pupilShapeBtn"
+                    onclick="detectPupilShape()" title="동공 실제 모양 정밀 감지 (불규칙 윤곽)">
+              <i class="bi bi-circle"></i> 동공
+            </button>
+            <button class="btn btn-xs" id="eyelidBtn"
+                    onclick="detectEyelidMask()" title="눈꺼풀 차폐 영역 감지 및 제외">
+              <i class="bi bi-eye-slash"></i> 눈꺼풀
+            </button>
+            <button class="btn btn-xs" onclick="exportColorJSON()" title="JSON 내보내기">
+              <i class="bi bi-download"></i>
+            </button>
+            <button class="btn btn-xs ms-1" id="colorPanelPopupBtn"
+                    onclick="toggleColorPanelFloat()" title="팝업 창으로 분리" style="min-width:28px">
+              <i class="bi bi-pip" id="colorPanelPopupIcon"></i>
+            </button>
+            <button class="btn btn-xs ms-1" data-bs-toggle="collapse" data-bs-target="#colorPanelBody"
+                    title="접기/펼치기" style="min-width:28px">
+              <i class="bi bi-chevron-up collapse-chevron"></i>
+            </button>
           </div>
         </div>
-      </div>
-      <div class="collapse show" id="colorPanelBody">
-        <!-- 화이트밸런스 -->
-        <style>
-          .wb-slider { -webkit-appearance:none; appearance:none; width:100%; height:8px; border-radius:4px; outline:none; cursor:pointer; border:none; background:transparent; }
-          .wb-slider::-webkit-slider-thumb { -webkit-appearance:none; width:18px; height:18px; border-radius:50%; background:#fff; border:2px solid rgba(0,0,0,0.18); box-shadow:0 1px 5px rgba(0,0,0,0.28); cursor:pointer; transition:transform .1s; }
-          .wb-slider::-webkit-slider-thumb:hover { transform:scale(1.15); }
-          .wb-slider::-moz-range-thumb { width:18px; height:18px; border-radius:50%; background:#fff; border:2px solid rgba(0,0,0,0.18); box-shadow:0 1px 5px rgba(0,0,0,0.28); cursor:pointer; }
-          .wb-track { flex:1; height:8px; border-radius:4px; position:relative; }
-        </style>
-        <div id="wbPanel" style="display:none;padding:8px 12px 8px;border-bottom:1px solid #ede9fe;background:#faf8ff">
-          <div style="font-size:0.68rem;font-weight:600;color:#7c3aed;margin-bottom:8px">
-            <i class="bi bi-brightness-high me-1"></i>화이트 밸런스
-            <button onclick="resetWB()" style="margin-left:6px;font-size:0.6rem;padding:1px 6px;border:1px solid #c4b5fd;border-radius:8px;background:none;color:#7c3aed;cursor:pointer">초기화</button>
+        <!-- 구분표 링 개별 선택 + 자율신경환 가이드 -->
+        <div id="zoneRingBtns" style="display:none;padding:5px 10px;background:#f8f5ff;border-bottom:1px solid #e9e0f8">
+          <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">
+            <div id="zoneRingBtnGroup" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+            <button id="autoNerveGuideBtn" class="btn btn-xs"
+                    onclick="toggleAutoNerveGuide()"
+                    style="border-left:3px solid #a78bfa;padding:2px 8px;font-size:0.68rem;border-radius:12px"
+                    title="영양·흡수 링 중간선 = 자율신경환 기준 위치">
+              자율신경환
+            </button>
+            <div id="autoNerveControls" style="display:none;margin-left:6px;align-items:center;gap:8px;font-size:0.62rem;color:#555">
+              <label style="display:flex;align-items:center;gap:3px;white-space:nowrap">
+                불투명도
+                <input type="range" min="0" max="100" value="90" step="5"
+                       style="width:60px;accent-color:#a78bfa"
+                       oninput="autoNerveOpacity=this.value/100;document.getElementById('autoNerveOpacityVal').textContent=this.value+'%';_drawIrisColorMap()">
+                <span id="autoNerveOpacityVal">90%</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:3px;white-space:nowrap">
+                두께
+                <input type="range" min="1" max="10" value="2" step="0.5"
+                       style="width:50px;accent-color:#a78bfa"
+                       oninput="autoNerveLineWidth=+this.value;document.getElementById('autoNerveWidthVal').textContent=this.value+'px';_drawIrisColorMap()">
+                <span id="autoNerveWidthVal">2px</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:3px;white-space:nowrap">
+                흐림
+                <input type="range" min="0" max="20" value="0" step="1"
+                       style="width:50px;accent-color:#a78bfa"
+                       oninput="autoNerveBlur=+this.value;document.getElementById('autoNerveBlurVal').textContent=this.value+'px';_drawIrisColorMap()">
+                <span id="autoNerveBlurVal">0px</span>
+              </label>
+            </div>
           </div>
-          <div style="display:flex;flex-direction:column;gap:8px">
+        </div>
+        <!-- 조명 패널 (밝기·대비·하이라이트·그림자·온도·색조) -->
+        <div id="lightingPanel" style="display:none;border-bottom:1px solid #ede9fe;background:#faf8ff">
+          <!-- 헤더 (접기/펼치기) -->
+          <div style="display:flex;align-items:center;padding:7px 12px;cursor:pointer;user-select:none"
+               onclick="toggleLightingCollapse()">
+            <i class="bi bi-sun me-1" style="color:#7c3aed;font-size:0.85rem"></i>
+            <span style="font-size:0.68rem;font-weight:600;color:#7c3aed">조명</span>
+            <button onclick="event.stopPropagation();resetLighting()"
+                    style="margin-left:6px;font-size:0.6rem;padding:1px 6px;border:1px solid #c4b5fd;border-radius:8px;background:none;color:#7c3aed;cursor:pointer">초기화</button>
+            <i class="bi bi-chevron-up ms-auto" id="lightingCollapseIcon" style="font-size:0.7rem;color:#a78bfa;transition:transform .2s"></i>
+          </div>
+          <!-- 슬라이더들 -->
+          <div id="lightingBody" style="padding:4px 12px 10px;display:flex;flex-direction:column;gap:7px">
+            <!-- 밝기 -->
             <div style="display:flex;align-items:center;gap:8px;font-size:0.63rem;color:#555">
-              <span style="width:26px">온도</span>
+              <span style="width:46px">밝기</span>
+              <div class="wb-track" style="background:linear-gradient(to right,#374151,#e2e8f0,#fff)">
+                <input type="range" id="ltBrightnessSlider" min="-100" max="100" value="0" class="wb-slider" oninput="onLightingChange()">
+              </div>
+              <span id="ltBrightnessVal" style="width:28px;text-align:right;font-weight:600;color:#7c3aed">0</span>
+            </div>
+            <!-- 대비 -->
+            <div style="display:flex;align-items:center;gap:8px;font-size:0.63rem;color:#555">
+              <span style="width:46px">대비</span>
+              <div class="wb-track" style="background:linear-gradient(to right,#9ca3af,#e2e8f0,#111)">
+                <input type="range" id="ltContrastSlider" min="-100" max="100" value="0" class="wb-slider" oninput="onLightingChange()">
+              </div>
+              <span id="ltContrastVal" style="width:28px;text-align:right;font-weight:600;color:#7c3aed">0</span>
+            </div>
+            <!-- 하이라이트 -->
+            <div style="display:flex;align-items:center;gap:8px;font-size:0.63rem;color:#555">
+              <span style="width:46px">하이라이트</span>
+              <div class="wb-track" style="background:linear-gradient(to right,#d1d5db,#e2e8f0,#fffbeb)">
+                <input type="range" id="ltHighlightSlider" min="-100" max="100" value="0" class="wb-slider" oninput="onLightingChange()">
+              </div>
+              <span id="ltHighlightVal" style="width:28px;text-align:right;font-weight:600;color:#7c3aed">0</span>
+            </div>
+            <!-- 그림자 -->
+            <div style="display:flex;align-items:center;gap:8px;font-size:0.63rem;color:#555">
+              <span style="width:46px">그림자</span>
+              <div class="wb-track" style="background:linear-gradient(to right,#111,#e2e8f0,#c4b5fd)">
+                <input type="range" id="ltShadowSlider" min="-100" max="100" value="0" class="wb-slider" oninput="onLightingChange()">
+              </div>
+              <span id="ltShadowVal" style="width:28px;text-align:right;font-weight:600;color:#7c3aed">0</span>
+            </div>
+            <!-- 온도 -->
+            <div style="display:flex;align-items:center;gap:8px;font-size:0.63rem;color:#555">
+              <span style="width:46px">온도</span>
               <div class="wb-track" style="background:linear-gradient(to right,#93c5fd,#e2e8f0,#fdba74)">
-                <input type="range" id="wbTempSlider" min="-100" max="100" value="0"
-                       class="wb-slider" oninput="onWBChange()">
+                <input type="range" id="wbTempSlider" min="-100" max="100" value="0" class="wb-slider" oninput="onLightingChange()">
               </div>
               <span id="wbTempVal" style="width:28px;text-align:right;font-weight:600;color:#7c3aed">0</span>
             </div>
+            <!-- 색조 -->
             <div style="display:flex;align-items:center;gap:8px;font-size:0.63rem;color:#555">
-              <span style="width:26px">색조</span>
+              <span style="width:46px">색조</span>
               <div class="wb-track" style="background:linear-gradient(to right,#86efac,#e2e8f0,#d8b4fe)">
-                <input type="range" id="wbTintSlider" min="-100" max="100" value="0"
-                       class="wb-slider" oninput="onWBChange()">
+                <input type="range" id="wbTintSlider" min="-100" max="100" value="0" class="wb-slider" oninput="onLightingChange()">
               </div>
               <span id="wbTintVal" style="width:28px;text-align:right;font-weight:600;color:#7c3aed">0</span>
             </div>
           </div>
         </div>
+      </div><!-- /#colorStickyBar -->
+      <!-- ── 스크롤되는 컨텐츠 ── -->
+      <div class="collapse show" id="colorPanelBody">
         <div id="colorPanelContent"></div>
       </div>
     </div>
@@ -466,7 +520,10 @@ let showIrisZones       = false;
 let selectedZones       = null; // RADIAL_ZONES 정의 후 초기화
 let collSensThreshold   = 3;     // 신경환 밝기 기울기 최소 임계값 (0=민감, 30=둔감)
 let brightnessAlpha     = 0.62;  // 밝기 맵 오버레이 강도 (0.1~1.0)
-let wbTemp = 0, wbTint = 0;     // 화이트밸런스: 온도(-100~+100), 색조(-100~+100)
+let wbTemp = 0, wbTint = 0;           // 온도·색조
+let ltBrightness = 0, ltContrast = 0; // 밝기·대비
+let ltHighlight  = 0, ltShadow  = 0;  // 하이라이트·그림자
+let _lightingCollapsed = false;
 let showAutoNerveGuide  = false; // 자율신경환 가이드 원
 let autoNerveOpacity    = 0.9;   // 불투명도 0~1
 let autoNerveLineWidth  = 1.5;   // 선 두께 px
@@ -1263,13 +1320,14 @@ async function analyzeIrisColors() {
 function _buildColorPanel(samples) {
   if (!samples?.length) return;
 
-  // 화이트밸런스 적용
-  const wbSamples = (wbTemp === 0 && wbTint === 0) ? samples
+  // 조명 보정 적용 (온도/색조/밝기/대비/하이라이트/그림자)
+  const _noAdjust = wbTemp===0&&wbTint===0&&ltBrightness===0&&ltContrast===0&&ltHighlight===0&&ltShadow===0;
+  const wbSamples = _noAdjust ? samples
     : samples.map(s => { const [r,g,b] = _wbColor(s.r, s.g, s.b); return {...s, r, g, b}; });
 
-  // wbPanel 표시
-  const wbPanel = document.getElementById('wbPanel');
-  if (wbPanel) wbPanel.style.display = '';
+  // 조명 패널 표시
+  const lightingPanel = document.getElementById('lightingPanel');
+  if (lightingPanel) lightingPanel.style.display = '';
 
   // ① 대표 색상 — step=10 버킷 후 유사색 병합 (최대 8 클러스터)
   const buckets = {};
@@ -1326,17 +1384,24 @@ function _buildColorPanel(samples) {
   // ③ 패널 렌더 (모달 내부 colorPanelContent 에 삽입)
   document.getElementById('colorPanelContent').innerHTML = `
     <!-- 대표 색상 팔레트 -->
-    <div class="cp-section">
-      <div class="cp-label">대표 색상 (${dominant.length}개)</div>
-      <div class="cp-swatches">
-        ${dominant.map(c=>`
-          <div class="cp-swatch" data-hex="${c.hex}" style="background:${c.hex}"
-               title="${c.hex} · ${c.pct}% — 클릭하면 홍채 맵에서 강조"
-               onclick="selectSwatch('${c.hex}')">
-            <span class="cp-swatch-pct">${c.pct}%</span>
-          </div>`).join('')}
+    <div class="cp-section" style="padding-bottom:0">
+      <div style="display:flex;align-items:center;cursor:pointer;padding-bottom:6px"
+           onclick="toggleSwatchSection()">
+        <span class="cp-label" style="margin-bottom:0">대표 색상 (${dominant.length}개)</span>
+        <i class="bi bi-chevron-up ms-auto" id="swatchCollapseIcon"
+           style="font-size:0.7rem;color:#a78bfa;transition:transform .2s"></i>
       </div>
-      <div class="cp-selected-info" id="selectedSwatchInfo"></div>
+      <div id="swatchBody">
+        <div class="cp-swatches">
+          ${dominant.map(c=>`
+            <div class="cp-swatch" data-hex="${c.hex}" style="background:${c.hex}"
+                 title="${c.hex} · ${c.pct}% — 클릭하면 홍채 맵에서 강조"
+                 onclick="selectSwatch('${c.hex}')">
+              <span class="cp-swatch-pct">${c.pct}%</span>
+            </div>`).join('')}
+        </div>
+        <div class="cp-selected-info" id="selectedSwatchInfo"></div>
+      </div>
     </div>
     <!-- 평균 색상 -->
     <div class="cp-section cp-avg-row">
@@ -2362,17 +2427,61 @@ function onCollSensChange(val) {
 }
 
 function _wbColor(r, g, b) {
-  if (wbTemp === 0 && wbTint === 0) return [r, g, b];
   const clamp = v => Math.max(0, Math.min(255, Math.round(v)));
-  const tScale = wbTemp * 0.5, tintScale = wbTint * 0.5;
-  return [clamp(r + tScale), clamp(g - tintScale), clamp(b - tScale)];
+  let nr = r, ng = g, nb = b;
+
+  // 온도·색조
+  if (wbTemp !== 0 || wbTint !== 0) {
+    const tScale = wbTemp * 0.5, tintScale = wbTint * 0.5;
+    nr += tScale; ng -= tintScale; nb -= tScale;
+  }
+
+  // 밝기
+  if (ltBrightness !== 0) {
+    const d = ltBrightness * 1.5;
+    nr += d; ng += d; nb += d;
+  }
+
+  // 대비 (midpoint = 128)
+  if (ltContrast !== 0) {
+    const f = 1 + ltContrast / 100;
+    nr = (nr - 128) * f + 128;
+    ng = (ng - 128) * f + 128;
+    nb = (nb - 128) * f + 128;
+  }
+
+  // 하이라이트 (밝은 픽셀에 더 강하게)
+  if (ltHighlight !== 0) {
+    const lum = (nr * 0.299 + ng * 0.587 + nb * 0.114) / 255;
+    const w = Math.max(0, (lum - 0.5) * 2); // 0.5 이상만
+    const d = ltHighlight * w;
+    nr += d; ng += d; nb += d;
+  }
+
+  // 그림자 (어두운 픽셀에 더 강하게)
+  if (ltShadow !== 0) {
+    const lum = (nr * 0.299 + ng * 0.587 + nb * 0.114) / 255;
+    const w = Math.max(0, (0.5 - lum) * 2); // 0.5 미만만
+    const d = ltShadow * w;
+    nr += d; ng += d; nb += d;
+  }
+
+  return [clamp(nr), clamp(ng), clamp(nb)];
 }
 
-function onWBChange() {
-  wbTemp = Number(document.getElementById('wbTempSlider').value);
-  wbTint = Number(document.getElementById('wbTintSlider').value);
-  document.getElementById('wbTempVal').textContent = wbTemp;
-  document.getElementById('wbTintVal').textContent = wbTint;
+function onLightingChange() {
+  wbTemp       = Number(document.getElementById('wbTempSlider').value);
+  wbTint       = Number(document.getElementById('wbTintSlider').value);
+  ltBrightness = Number(document.getElementById('ltBrightnessSlider').value);
+  ltContrast   = Number(document.getElementById('ltContrastSlider').value);
+  ltHighlight  = Number(document.getElementById('ltHighlightSlider').value);
+  ltShadow     = Number(document.getElementById('ltShadowSlider').value);
+  document.getElementById('wbTempVal').textContent      = wbTemp;
+  document.getElementById('wbTintVal').textContent      = wbTint;
+  document.getElementById('ltBrightnessVal').textContent = ltBrightness;
+  document.getElementById('ltContrastVal').textContent  = ltContrast;
+  document.getElementById('ltHighlightVal').textContent = ltHighlight;
+  document.getElementById('ltShadowVal').textContent    = ltShadow;
   if (colorSamples) {
     const filtered = showEyelidMask && eyelidMask
       ? colorSamples.filter(s => !eyelidMask[Math.round(s.angle) % 360])
@@ -2382,13 +2491,36 @@ function onWBChange() {
   }
 }
 
-function resetWB() {
-  wbTemp = 0; wbTint = 0;
-  document.getElementById('wbTempSlider').value = 0;
-  document.getElementById('wbTintSlider').value = 0;
-  document.getElementById('wbTempVal').textContent = 0;
-  document.getElementById('wbTintVal').textContent = 0;
-  onWBChange();
+function resetLighting() {
+  wbTemp = 0; wbTint = 0; ltBrightness = 0; ltContrast = 0; ltHighlight = 0; ltShadow = 0;
+  ['wbTempSlider','wbTintSlider','ltBrightnessSlider','ltContrastSlider','ltHighlightSlider','ltShadowSlider']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = 0; });
+  ['wbTempVal','wbTintVal','ltBrightnessVal','ltContrastVal','ltHighlightVal','ltShadowVal']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 0; });
+  if (colorSamples) {
+    const filtered = showEyelidMask && eyelidMask
+      ? colorSamples.filter(s => !eyelidMask[Math.round(s.angle) % 360])
+      : colorSamples;
+    _buildColorPanel(filtered);
+    _drawIrisColorMap();
+  }
+}
+
+function toggleLightingCollapse() {
+  _lightingCollapsed = !_lightingCollapsed;
+  const body = document.getElementById('lightingBody');
+  const icon = document.getElementById('lightingCollapseIcon');
+  if (body) body.style.display = _lightingCollapsed ? 'none' : 'flex';
+  if (icon) icon.style.transform = _lightingCollapsed ? 'rotate(180deg)' : '';
+}
+
+let _swatchCollapsed = false;
+function toggleSwatchSection() {
+  _swatchCollapsed = !_swatchCollapsed;
+  const body = document.getElementById('swatchBody');
+  const icon = document.getElementById('swatchCollapseIcon');
+  if (body) body.style.display = _swatchCollapsed ? 'none' : '';
+  if (icon) icon.style.transform = _swatchCollapsed ? 'rotate(180deg)' : '';
 }
 
 function _hex(r, g, b) {
@@ -2451,6 +2583,126 @@ function exportColorJSON() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = `iris_color_${IMAGE_ID}.json`; a.click();
   toast('JSON 저장 완료', 'success');
+}
+
+// ── 홍채 색상 분석 팝업 플로팅 ────────────────────────────────────────────────
+let _cpFloat = false;
+let _cpPlaceholder = null;
+let _cpDragState = null;
+
+function toggleColorPanelFloat() {
+  const panel = document.getElementById('colorPanel');
+  const btn   = document.getElementById('colorPanelPopupBtn');
+  const icon  = document.getElementById('colorPanelPopupIcon');
+  if (!panel) return;
+
+  if (!_cpFloat) {
+    // ── 분리: placeholder 삽입 후 body 로 이동 ──────────────────────────────
+    _cpPlaceholder = document.createElement('div');
+    _cpPlaceholder.id = 'colorPanelPlaceholder';
+    _cpPlaceholder.style.display = 'none';
+    panel.parentNode.insertBefore(_cpPlaceholder, panel);
+    document.body.appendChild(panel);
+
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const w = Math.min(680, vw - 32);
+    const left = Math.max(16, (vw - w) / 2);
+    const top  = Math.max(16, vh - 520);
+
+    Object.assign(panel.style, {
+      position: 'fixed',
+      top:      top + 'px',
+      left:     left + 'px',
+      width:    w + 'px',
+      maxWidth: w + 'px',
+      zIndex:   '9999',
+      boxShadow:'0 8px 40px rgba(0,0,0,0.22)',
+      borderRadius:'10px',
+      overflow: 'hidden',
+      margin:   '0',
+      resize:   'both',
+    });
+
+    // 드래그 핸들 (header)
+    const header = panel.querySelector('.card-header');
+    if (header) {
+      header.style.cursor = 'grab';
+      header.addEventListener('mousedown', _cpDragStart);
+    }
+
+    icon.className  = 'bi bi-pip-fill';
+    btn.title       = '원래 위치로 되돌리기';
+    btn.style.color = '#7C3AED';
+    _cpFloat = true;
+  } else {
+    // ── 복원: placeholder 위치로 돌아가기 ──────────────────────────────────
+    const ph = document.getElementById('colorPanelPlaceholder');
+    if (ph) {
+      ph.parentNode.insertBefore(panel, ph);
+      ph.remove();
+    }
+    _cpPlaceholder = null;
+
+    Object.assign(panel.style, {
+      position: '',
+      top:      '',
+      left:     '',
+      width:    '',
+      maxWidth: '',
+      zIndex:   '',
+      boxShadow:'',
+      borderRadius:'',
+      overflow: '',
+      margin:   '',
+      resize:   '',
+    });
+
+    const header = panel.querySelector('.card-header');
+    if (header) {
+      header.style.cursor = '';
+      header.removeEventListener('mousedown', _cpDragStart);
+    }
+
+    icon.className  = 'bi bi-pip';
+    btn.title       = '팝업 창으로 분리';
+    btn.style.color = '';
+    _cpFloat = false;
+  }
+}
+
+function _cpDragStart(e) {
+  if (e.target.tagName === 'BUTTON' || e.target.tagName === 'I') return;
+  const panel = document.getElementById('colorPanel');
+  const rect  = panel.getBoundingClientRect();
+  _cpDragState = { ox: e.clientX - rect.left, oy: e.clientY - rect.top };
+  e.currentTarget.style.cursor = 'grabbing';
+  document.addEventListener('mousemove', _cpDragMove);
+  document.addEventListener('mouseup',   _cpDragEnd);
+  e.preventDefault();
+}
+
+function _cpDragMove(e) {
+  if (!_cpDragState) return;
+  const panel = document.getElementById('colorPanel');
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const w  = panel.offsetWidth, h = panel.offsetHeight;
+  let nx = e.clientX - _cpDragState.ox;
+  let ny = e.clientY - _cpDragState.oy;
+  nx = Math.max(0, Math.min(vw - w, nx));
+  ny = Math.max(0, Math.min(vh - 40, ny));
+  panel.style.left = nx + 'px';
+  panel.style.top  = ny + 'px';
+}
+
+function _cpDragEnd() {
+  if (_cpDragState) {
+    const panel = document.getElementById('colorPanel');
+    const header = panel?.querySelector('.card-header');
+    if (header) header.style.cursor = 'grab';
+  }
+  _cpDragState = null;
+  document.removeEventListener('mousemove', _cpDragMove);
+  document.removeEventListener('mouseup',   _cpDragEnd);
 }
 
 // ── 색상 점 오버레이 렌더 (render()에서 호출) ──────────────────────────────────
