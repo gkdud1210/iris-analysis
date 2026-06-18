@@ -1744,42 +1744,6 @@ function _drawIrisColorMap() {
     mc.restore();
   }
 
-  // ── 밝기 단계 범례 ────────────────────────────────────────────────────────
-  if (showBrightnessMap) {
-    const items = [
-      { color:'#82DCFF', label:'+2단계 (밝음)' },
-      { color:'#FFEB50', label:'+1단계 (약간 밝음)' },
-      { color:'#888888', label:'기준 (대표색)' },
-      { color:'#FF8232', label:'-1단계 (약간 어두움)' },
-      { color:'#C83228', label:'-2단계 (어두움)' },
-    ];
-    const fs = Math.max(9, SIZE/45|0);
-    const bw = 11, bh = 11, gap = 3, pad = 8;
-    const lh = bh + gap;
-    const totalH = items.length * lh + pad;
-    const lx = pad, ly = SIZE - totalH;
-
-    mc.save();
-    mc.fillStyle = 'rgba(0,0,0,0.55)';
-    mc.fillRect(lx - 3, ly - 3, 120*(fs/10), totalH + 4);
-    mc.font = `${fs}px sans-serif`;
-    mc.textBaseline = 'middle';
-    items.forEach((item, i) => {
-      const y = ly + i * lh;
-      if (item.color === '#888888' && dominantColorHex) {
-        mc.fillStyle = dominantColorHex;
-      } else {
-        mc.fillStyle = item.color;
-      }
-      mc.fillRect(lx, y, bw, bh);
-      mc.strokeStyle = 'rgba(255,255,255,0.4)';
-      mc.lineWidth = 0.5;
-      mc.strokeRect(lx, y, bw, bh);
-      mc.fillStyle = '#fff';
-      mc.fillText(item.label, lx + bw + 4, y + bh/2);
-    });
-    mc.restore();
-  }
 }
 
 // 동심원 구역별 평균 색상 계산 (radial: 0=동공, 1=외경)
