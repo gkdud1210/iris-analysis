@@ -425,7 +425,7 @@ let showPupilShape    = false; // 동공 정밀 윤곽
 let pupilShape        = null;  // { points: Float32Array(360), N }
 let eyelidMask        = null;  // Uint8Array(360): 1=눈꺼풀 차폐 각도 (색상 필터링용)
 let eyelidPolygons    = null;  // [{coords:[[nx,ny],...], is_upper:bool}] 라벨 원본 좌표
-let showEyelidMask    = false;
+let showEyelidMask    = true;
 
 // 눈꺼풀/피부 색상 감지
 // 핵심: 밝음(lum>175) + HSV채도 0.06~0.42 → 빛반사(sat≈0)와 구분
@@ -1197,6 +1197,9 @@ async function analyzeIrisColors() {
 
   if (skinAngles > 0) {
     _applyEyelidMask(Array.from(skinClosed));
+  } else {
+    // 눈꺼풀 감지 결과 없어도 showEyelidMask 유지 (빈 마스크로 재렌더)
+    _buildColorPanel(colorSamples);
   }
 }
 
