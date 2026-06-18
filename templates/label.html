@@ -24,6 +24,8 @@
   <!-- ── 좌: 이미지 + 캔버스 ────────────────────────────────────────────── -->
   <div class="col-xl-7 col-lg-7" id="imageCol">
 
+    <!-- 접힐 때 숨겨지는 영역 -->
+    <div id="imageColContent">
     <!-- 툴바 -->
     <div class="card mb-2">
       <div class="card-body py-2 px-3">
@@ -152,6 +154,7 @@
         </div>
       </div>
     </div>
+    </div><!-- /imageColContent -->
   </div>
 
   <!-- ── 우: 설정 + 목록 ─────────────────────────────────────────────────── -->
@@ -2621,26 +2624,25 @@ function toggleIrisMeasure() {
 let _imgCollapsed = false;
 function toggleImagePanel() {
   _imgCollapsed = !_imgCollapsed;
-  const body   = document.getElementById('imageCardBody');
-  const imgCol = document.getElementById('imageCol');
-  const toolCol = document.getElementById('toolCol');
-  const icon   = document.getElementById('imgCollapseIcon');
-  const btn    = document.getElementById('imgCollapseBtn');
+  const content  = document.getElementById('imageColContent');
+  const imgCol   = document.getElementById('imageCol');
+  const toolCol  = document.getElementById('toolCol');
+  const btn      = document.getElementById('imgCollapseBtn');
 
   if (_imgCollapsed) {
-    body.style.display = 'none';
-    // 이미지 컬럼 최소화, 도구 컬럼 최대화
-    imgCol.className  = 'col-xl-1 col-lg-1';
-    toolCol.className = 'col-xl-11 col-lg-11';
-    icon.className    = 'bi bi-chevron-down';
-    btn.innerHTML     = '<i class="bi bi-chevron-down" id="imgCollapseIcon"></i> 펼치기';
+    content.style.display = 'none';
+    imgCol.className  = 'col-auto';
+    toolCol.className = 'col';
+    btn.innerHTML = '<i class="bi bi-chevron-right"></i> 펼치기';
+    btn.style.writingMode = 'vertical-rl';
+    btn.style.padding = '8px 4px';
   } else {
-    body.style.display = '';
+    content.style.display = '';
     imgCol.className  = 'col-xl-7 col-lg-7';
     toolCol.className = 'col-xl-5 col-lg-5';
-    icon.className    = 'bi bi-chevron-up';
-    btn.innerHTML     = '<i class="bi bi-chevron-up" id="imgCollapseIcon"></i> 접기';
-    // 캔버스 크기 재조정
+    btn.innerHTML = '<i class="bi bi-chevron-up"></i> 접기';
+    btn.style.writingMode = '';
+    btn.style.padding = '';
     setTimeout(() => { const r = imgEl.getBoundingClientRect(); canvas.width=r.width; canvas.height=r.height; render(); }, 50);
   }
 }
