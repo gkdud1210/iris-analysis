@@ -259,18 +259,17 @@
                   onclick="toggleBrightnessMap()" title="대표색 기준 밝기 단계 분포 (+2/+1/기준/-1/-2)">
             <i class="bi bi-brightness-high"></i> 밝기
           </button>
+          <span id="brightnessAlphaWrap" style="display:none;align-items:center;gap:3px;font-size:0.62rem;color:#555">
+            <input type="range" id="brightnessAlphaSlider" min="10" max="100" value="62"
+                   style="width:60px;accent-color:#6366f1;cursor:pointer"
+                   oninput="onBrightnessAlphaChange(this.value)"
+                   title="밝기 오버레이 강도">
+            <span id="brightnessAlphaVal" style="min-width:22px">62%</span>
+          </span>
           <button class="btn btn-xs" id="collRingBtn"
                   onclick="detectCollarette()" title="자율신경환(콜라렛) 위치 자동 감지">
             <i class="bi bi-record-circle"></i> 신경환
           </button>
-          <span id="collSensWrap" style="display:none;align-items:center;gap:3px;font-size:0.62rem;color:#555">
-            <i class="bi bi-brightness-high" style="font-size:0.7rem"></i>
-            <input type="range" id="collSensSlider" min="0" max="30" value="3"
-                   style="width:55px;accent-color:#6366f1;cursor:pointer"
-                   oninput="onCollSensChange(this.value)"
-                   title="밝기 감도 (낮을수록 민감)">
-            <span id="collSensVal" style="min-width:18px">3</span>
-          </span>
           <button class="btn btn-xs" id="pupilShapeBtn"
                   onclick="detectPupilShape()" title="동공 실제 모양 정밀 감지 (불규칙 윤곽)">
             <i class="bi bi-circle"></i> 동공
@@ -452,6 +451,7 @@ let showColorFill   = true;
 let showIrisZones       = false;
 let selectedZones       = null; // RADIAL_ZONES 정의 후 초기화
 let collSensThreshold   = 3;     // 신경환 밝기 기울기 최소 임계값 (0=민감, 30=둔감)
+let brightnessAlpha     = 0.62;  // 밝기 맵 오버레이 강도 (0.1~1.0)
 let wbTemp = 0, wbTint = 0;     // 화이트밸런스: 온도(-100~+100), 색조(-100~+100)
 let showAutoNerveGuide  = false; // 자율신경환 가이드 원
 let autoNerveOpacity    = 0.9;   // 불투명도 0~1
@@ -1474,7 +1474,7 @@ function _drawIrisColorMap() {
 
     // +2: 하늘색, +1: 연노랑, -1: 주황, -2: 진빨강
     const LC = { p2:[130,220,255], p1:[255,235,80], m1:[255,130,50], m2:[200,50,40] };
-    const ALPHA = 0.62;
+    const ALPHA = brightnessAlpha;
 
     for (let i = 0; i < od.length; i += 4) {
       if (od[i+3] === 0) continue;
@@ -1937,6 +1937,15 @@ function toggleBrightnessMap() {
       ? '<i class="bi bi-brightness-high-fill"></i> 밝기 끄기'
       : '<i class="bi bi-brightness-high"></i> 밝기';
   }
+  const wrap = document.getElementById('brightnessAlphaWrap');
+  if (wrap) wrap.style.display = showBrightnessMap ? 'inline-flex' : 'none';
+  _drawIrisColorMap();
+}
+
+function onBrightnessAlphaChange(val) {
+  brightnessAlpha = val / 100;
+  const label = document.getElementById('brightnessAlphaVal');
+  if (label) label.textContent = val + '%';
   _drawIrisColorMap();
 }
 
