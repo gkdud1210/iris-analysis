@@ -629,25 +629,41 @@ def _detect_iris_opencv(image_path):
         icx, icy, ir = w // 2, h // 2, int(w * 0.38)
 
     # ── Pupil (dark, smaller, near iris center) ──
+    # Step 1: 카메라 반사광(밝은 점) 인페인팅 → 동공 내 흰 점을 주변 어두운 값으로 채움
+    gray_raw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    _, glare_mask = cv2.threshold(gray_raw, 200, 255, cv2.THRESH_BINARY)
+    glare_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    glare_mask = cv2.dilate(glare_mask, glare_kernel, iterations=1)
+    gray_clean = cv2.inpaint(gray_raw, glare_mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+    blurred_clean = cv2.medianBlur(gray_clean, 7)
+
+    # Step 2: ROI 크롭 (홍채 영역 내부)
     crop_margin = max(0, ir - 10)
     x1 = max(0, icx - crop_margin); x2 = min(w, icx + crop_margin)
     y1 = max(0, icy - crop_margin); y2 = min(h, icy + crop_margin)
-    roi = blurred[y1:y2, x1:x2] if y2 > y1 and x2 > x1 else blurred
+    roi = blurred_clean[y1:y2, x1:x2] if y2 > y1 and x2 > x1 else blurred_clean
 
+    # Step 3: Hough 원 검출 (minRadius를 12%로 높여 반사광 소원 제거)
     pupil_raw = cv2.HoughCircles(
         roi, cv2.HOUGH_GRADIENT, dp=1,
         minDist=max(1, (x2 - x1) // 3),
-        param1=50, param2=20,
-        minRadius=max(3, int(ir * 0.06)),
-        maxRadius=int(ir * 0.50),
+        param1=60, param2=22,
+        minRadius=max(5, int(ir * 0.12)),
+        maxRadius=int(ir * 0.55),
     )
     if pupil_raw is not None:
         pcands = np.round(pupil_raw[0]).astype(int)
         pcands[:, 0] += x1; pcands[:, 1] += y1   # restore full-image coords
+        # 홍채 중심에 가장 가깝고 크기가 적절한 원 선택
         pcands = sorted(pcands, key=lambda c: (c[0]-icx)**2 + (c[1]-icy)**2)
         pcx, pcy, pr = pcands[0]
     else:
-        pcx, pcy, pr = icx, icy, int(ir * 0.28)
+        # 폴백: 인페인팅 이미지에서 가장 어두운 중심 영역으로 동공 추정
+        roi_clean = gray_clean[y1:y2, x1:x2] if y2 > y1 and x2 > x1 else gray_clean
+        roi_dark = cv2.GaussianBlur(roi_clean, (21, 21), 0)
+        _, _, min_loc, _ = cv2.minMaxLoc(roi_dark)
+        pcx = min_loc[0] + x1; pcy = min_loc[1] + y1
+        pr = int(ir * 0.28)
 
     f = lambda v: round(float(v), 4)   # numpy scalar → Python float
     return {
@@ -671,6 +687,19 @@ def _detect_iris_pil(image_path):
         Image.fromarray(arr.astype(np.uint8)).filter(ImageFilter.GaussianBlur(radius=max(3, w//60))),
         dtype=np.float32,
     )
+
+    # 반사광 제거: 밝은 점(>200)을 주변값으로 대체
+    bright_mask = arr > 200
+    if bright_mask.any():
+        from scipy.ndimage import binary_dilation, label as ndi_label
+        bright_mask = binary_dilation(bright_mask, iterations=4)
+        from PIL import ImageFilter as _IF
+        filled = np.array(Image.fromarray(arr.astype(np.uint8)).filter(_IF.GaussianBlur(radius=max(5, w//40))), dtype=np.float32)
+        arr = np.where(bright_mask, filled, arr)
+        smooth = np.array(
+            Image.fromarray(arr.astype(np.uint8)).filter(ImageFilter.GaussianBlur(radius=max(3, w//60))),
+            dtype=np.float32,
+        )
 
     # Find darkest point in center 50% region (likely pupil center)
     roi = smooth[h//4:3*h//4, w//4:3*w//4]
