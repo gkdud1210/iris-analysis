@@ -306,6 +306,10 @@
                     onclick="detectPupilShape()" title="동공 실제 모양 정밀 감지 (불규칙 윤곽)">
               <i class="bi bi-circle"></i> 동공
             </button>
+            <button class="btn btn-xs" id="pupilDrawBtn"
+                    onclick="startPupilDraw()" title="동공 윤곽을 직접 드래그해서 동공 원 재설정">
+              <i class="bi bi-pencil-square"></i> 동공 그리기
+            </button>
             <button class="btn btn-xs" id="eyelidBtn"
                     onclick="detectEyelidMask()" title="눈꺼풀 차폐 영역 감지 및 제외">
               <i class="bi bi-eye-slash"></i> 눈꺼풀
@@ -536,6 +540,8 @@ let showCollRing      = false; // 자율신경환 표시
 let collRing          = null;  // { radii: Float32Array(360), N, avgR }
 let showPupilShape    = false; // 동공 정밀 윤곽
 let pupilShape        = null;  // { points: Float32Array(360), N }
+let pupilDrawMode     = false; // 동공 직접 그리기 모드
+let _pupilTracePts    = [];    // 그리는 중인 점 목록 [[px,py],...]
 let eyelidMask        = null;  // Uint8Array(360): 1=눈꺼풀 차폐 각도 (색상 필터링용)
 let eyelidPolygons    = null;  // [{coords:[[nx,ny],...], is_upper:bool}] 라벨 원본 좌표
 let showEyelidMask    = false;
@@ -694,6 +700,12 @@ function hitTestIrisMeasure(ann, [mx, my]) {
 canvas.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
 
+  // 동공 직접 그리기 모드
+  if (pupilDrawMode) {
+    _pupilTracePts = [canvasPx(e)];
+    return;
+  }
+
   // ── 베지어 펜툴은 click 이벤트로 처리 ───────────────────────────────────
   if (S.tool === 'bezier') return;
 
@@ -720,6 +732,12 @@ canvas.addEventListener('mousedown', e => {
 canvas.addEventListener('mousemove', e => {
   const mp = canvasPx(e);
   S.mousePos = mp;
+
+  // 동공 직접 그리기 모드
+  if (pupilDrawMode) {
+    if (e.buttons === 1 && _pupilTracePts.length > 0) _pupilTracePts.push(mp);
+    render(); return;
+  }
 
   if (S.tool === 'bezier') {
     BZ.mousePos = {x: mp[0], y: mp[1]};
@@ -765,6 +783,17 @@ canvas.addEventListener('mouseleave', () => { S.mousePos = null; render(); });
 
 // ── MOUSE UP ──────────────────────────────────────────────────────────────────
 canvas.addEventListener('mouseup', async e => {
+  // 동공 직접 그리기 완료
+  if (pupilDrawMode && _pupilTracePts.length > 5) {
+    pupilDrawMode = false;
+    canvas.style.cursor = 'default';
+    const btn = document.getElementById('pupilDrawBtn');
+    if (btn) { btn.classList.remove('active-dot-btn'); btn.innerHTML = '<i class="bi bi-pencil-square"></i> 동공 그리기'; }
+    await _finalizePupilDraw();
+    return;
+  }
+  if (pupilDrawMode) { pupilDrawMode = false; _pupilTracePts = []; render(); return; }
+
   // 베지어는 click으로 처리
 
   // 조정 완료 → DB 저장
@@ -2506,6 +2535,89 @@ function resetLighting() {
   }
 }
 
+// ── 동공 직접 그리기 ──────────────────────────────────────────────────────────
+function startPupilDraw() {
+  const btn = document.getElementById('pupilDrawBtn');
+  if (pupilDrawMode) {
+    // 취소
+    pupilDrawMode = false; _pupilTracePts = [];
+    canvas.style.cursor = 'default';
+    if (btn) { btn.classList.remove('active-dot-btn'); btn.innerHTML = '<i class="bi bi-pencil-square"></i> 동공 그리기'; }
+    render(); return;
+  }
+  const measure = S.annotations.find(a => a.geometry?.type === 'iris_measure');
+  if (!measure) { toast('먼저 홍채 비율 측정을 완료해 주세요.', 'error'); return; }
+  pupilDrawMode = true; _pupilTracePts = [];
+  canvas.style.cursor = 'crosshair';
+  if (btn) { btn.classList.add('active-dot-btn'); btn.innerHTML = '<i class="bi bi-x-circle"></i> 취소'; }
+  toast('동공 윤곽을 마우스로 드래그하세요', 'info', 3000);
+  render();
+}
+
+// 최소제곱법 원 피팅 (Kasa method)
+function _fitCircle(pts) {
+  const n = pts.length;
+  let sumX=0,sumY=0,sumX2=0,sumY2=0,sumXY=0,sumX3=0,sumY3=0,sumX2Y=0,sumXY2=0;
+  for (const [x,y] of pts) {
+    sumX+=x; sumY+=y; sumX2+=x*x; sumY2+=y*y; sumXY+=x*y;
+    sumX3+=x*x*x; sumY3+=y*y*y; sumX2Y+=x*x*y; sumXY2+=x*y*y;
+  }
+  const A = [[sumX2,sumXY,sumX],[sumXY,sumY2,sumY],[sumX,sumY,n]];
+  const b = [-(sumX3+sumXY2), -(sumX2Y+sumY3), -(sumX2+sumY2)];
+  // Gaussian elimination 3×3
+  for (let i=0;i<3;i++) {
+    let maxRow=i;
+    for (let k=i+1;k<3;k++) if (Math.abs(A[k][i])>Math.abs(A[maxRow][i])) maxRow=k;
+    [A[i],A[maxRow]]=[A[maxRow],A[i]]; [b[i],b[maxRow]]=[b[maxRow],b[i]];
+    if (Math.abs(A[i][i])<1e-10) continue;
+    for (let k=i+1;k<3;k++) {
+      const f=A[k][i]/A[i][i];
+      for (let j=i;j<3;j++) A[k][j]-=f*A[i][j];
+      b[k]-=f*b[i];
+    }
+  }
+  const sol=[0,0,0];
+  for (let i=2;i>=0;i--) {
+    sol[i]=b[i]; for (let j=i+1;j<3;j++) sol[i]-=A[i][j]*sol[j];
+    sol[i]/=A[i][i]||1;
+  }
+  const cx=-sol[0]/2, cy=-sol[1]/2;
+  const r=Math.sqrt(Math.max(0, cx*cx+cy*cy-sol[2]));
+  return {cx, cy, r};
+}
+
+async function _finalizePupilDraw() {
+  const pts = _pupilTracePts;
+  _pupilTracePts = [];
+  if (pts.length < 6) { render(); return; }
+
+  // 캔버스 px → 최적 원 피팅
+  const {cx, cy, r} = _fitCircle(pts);
+  if (r < 2) { toast('동공을 더 크게 그려주세요.', 'error'); render(); return; }
+
+  const measure = S.annotations.find(a => a.geometry?.type === 'iris_measure');
+  if (!measure) { toast('iris_measure 라벨이 없습니다.', 'error'); render(); return; }
+
+  // 정규화
+  const ncx = cx / canvas.width;
+  const ncy = cy / canvas.height;
+  const nr  = r  / canvas.width;
+
+  measure.geometry.pupil.center = [ncx, ncy];
+  measure.geometry.pupil.radius = nr;
+  measure.geometry.ratio = measure.geometry.iris.radius > 0
+    ? nr / measure.geometry.iris.radius : 0;
+
+  try {
+    await api.put(`/api/labels/${measure.id}`, { geometry: measure.geometry });
+    toast(`동공 원 업데이트 완료 (반지름 ${(nr*100).toFixed(1)}%)`, 'success', 3000);
+    updateRatioPanel();
+    // 색상 분석이 활성화되어 있으면 재실행
+    if (colorSamples?.length) analyzeIrisColors();
+  } catch(err) { toast('저장 실패: ' + err.message, 'error'); }
+  render();
+}
+
 function toggleLightingCollapse() {
   _lightingCollapsed = !_lightingCollapsed;
   const body = document.getElementById('lightingBody');
@@ -2873,6 +2985,32 @@ function render() {
   drawInProgress();
   drawPupilShapeOverlay();
   drawEyelidOverlay();
+  drawPupilTrace();  // 동공 직접 그리기 모드 경로
+}
+
+function drawPupilTrace() {
+  if (!pupilDrawMode && _pupilTracePts.length === 0) return;
+  const pts = _pupilTracePts;
+  ctx.save();
+  // 그리는 중인 경로
+  if (pts.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.strokeStyle = 'rgba(250,204,21,0.85)';
+    ctx.lineWidth   = 2.5;
+    ctx.setLineDash([5, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // 가이드 텍스트
+  if (pupilDrawMode) {
+    ctx.fillStyle    = 'rgba(250,204,21,0.95)';
+    ctx.font         = 'bold 13px sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.fillText('동공 윤곽을 따라 드래그하세요 — 마우스를 떼면 완료', canvas.width/2, 20);
+  }
+  ctx.restore();
 }
 
 function drawEyelidOverlay() {
