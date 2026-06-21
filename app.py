@@ -607,6 +607,15 @@ def _detect_iris_opencv(image_path):
     if img is None:
         return None
     h, w = img.shape[:2]
+
+    # 큰 이미지는 512로 다운스케일 후 처리 → 속도 향상
+    MAX_DIM = 512
+    scale = 1.0
+    if max(h, w) > MAX_DIM:
+        scale = MAX_DIM / max(h, w)
+        img = cv2.resize(img, (int(w * scale), int(h * scale)))
+        h, w = img.shape[:2]
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
@@ -629,19 +638,25 @@ def _detect_iris_opencv(image_path):
         icx, icy, ir = w // 2, h // 2, int(w * 0.38)
 
     # ── Pupil (dark, smaller, near iris center) ──
-    # Step 1: 카메라 반사광(밝은 점) 인페인팅 → 동공 내 흰 점을 주변 어두운 값으로 채움
-    gray_raw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    _, glare_mask = cv2.threshold(gray_raw, 200, 255, cv2.THRESH_BINARY)
-    glare_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
-    glare_mask = cv2.dilate(glare_mask, glare_kernel, iterations=1)
-    gray_clean = cv2.inpaint(gray_raw, glare_mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
-    blurred_clean = cv2.medianBlur(gray_clean, 7)
-
-    # Step 2: ROI 크롭 (홍채 영역 내부)
+    # Step 1: ROI 먼저 크롭 → 작은 영역에서만 inpaint (속도 핵심)
     crop_margin = max(0, ir - 10)
     x1 = max(0, icx - crop_margin); x2 = min(w, icx + crop_margin)
     y1 = max(0, icy - crop_margin); y2 = min(h, icy + crop_margin)
-    roi = blurred_clean[y1:y2, x1:x2] if y2 > y1 and x2 > x1 else blurred_clean
+
+    gray_raw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    roi_raw = gray_raw[y1:y2, x1:x2] if y2 > y1 and x2 > x1 else gray_raw
+
+    # Step 2: 반사광 인페인팅 — ROI 내에서만, 글레어 있을 때만 실행
+    _, glare_mask_roi = cv2.threshold(roi_raw, 200, 255, cv2.THRESH_BINARY)
+    if glare_mask_roi.any():
+        glare_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        glare_mask_roi = cv2.dilate(glare_mask_roi, glare_kernel, iterations=1)
+        roi_clean = cv2.inpaint(roi_raw, glare_mask_roi, inpaintRadius=4, flags=cv2.INPAINT_NS)
+    else:
+        roi_clean = roi_raw
+
+    blurred_clean = cv2.medianBlur(roi_clean, 7)
+    roi = blurred_clean
 
     # Step 3: Hough 원 검출 (minRadius를 12%로 높여 반사광 소원 제거)
     pupil_raw = cv2.HoughCircles(
@@ -658,8 +673,7 @@ def _detect_iris_opencv(image_path):
         pcands = sorted(pcands, key=lambda c: (c[0]-icx)**2 + (c[1]-icy)**2)
         pcx, pcy, pr = pcands[0]
     else:
-        # 폴백: 인페인팅 이미지에서 가장 어두운 중심 영역으로 동공 추정
-        roi_clean = gray_clean[y1:y2, x1:x2] if y2 > y1 and x2 > x1 else gray_clean
+        # 폴백: 인페인팅 ROI에서 가장 어두운 중심 영역으로 동공 추정
         roi_dark = cv2.GaussianBlur(roi_clean, (21, 21), 0)
         _, _, min_loc, _ = cv2.minMaxLoc(roi_dark)
         pcx = min_loc[0] + x1; pcy = min_loc[1] + y1
