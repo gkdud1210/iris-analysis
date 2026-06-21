@@ -1729,42 +1729,97 @@ function _drawIrisColorMap() {
     const pcx_map = SIZE/2 + (pcx - icx) / scale;
     const pcy_map = SIZE/2 + (pcy - icy) / scale;
     const avgRmap = avgRorig / scale;
-    const AMPL = 5; // 편차 5배 증폭 (미세 일그러짐 시각화)
+    const AMPL = 12; // 편차 12배 증폭 — 미세 일그러짐 강조
 
-    // ① 기준원 — 평균 반경 (파란 파선)
+    // ① 편차 채움 영역 (기준원 vs 실제 윤곽 사이를 빨강/파랑으로 채움)
+    // 바깥으로 튀어나온 구간 → 빨강, 안쪽으로 들어간 구간 → 파랑
+    mc.save();
+    // 빨강 채움: 실제 윤곽 > 기준원
+    mc.beginPath();
+    for (let i = 0; i <= NP; i++) {
+      const theta = ((i % NP) / NP) * 2 * Math.PI;
+      const rReal = points[i % NP] / scale;
+      const rRef  = avgRmap;
+      const r = rReal > rRef ? rReal : rRef; // 실제가 클 때만 실제, 아니면 기준원
+      const px = pcx_map + r * Math.cos(theta);
+      const py = pcy_map + r * Math.sin(theta);
+      if (i === 0) mc.moveTo(px, py); else mc.lineTo(px, py);
+    }
+    mc.closePath();
+    // 기준원을 반시계로 빼서 도넛 모양 만들기
+    for (let i = NP; i >= 0; i--) {
+      const theta = ((i % NP) / NP) * 2 * Math.PI;
+      const px = pcx_map + avgRmap * Math.cos(theta);
+      const py = pcy_map + avgRmap * Math.sin(theta);
+      if (i === NP) mc.moveTo(px, py); else mc.lineTo(px, py);
+    }
+    mc.fillStyle   = 'rgba(255,60,60,0.28)';
+    mc.fill('evenodd');
+    mc.restore();
+
+    // 파랑 채움: 실제 윤곽 < 기준원
+    mc.save();
+    mc.beginPath();
+    for (let i = 0; i <= NP; i++) {
+      const theta = ((i % NP) / NP) * 2 * Math.PI;
+      const rReal = points[i % NP] / scale;
+      const rRef  = avgRmap;
+      const r = rReal < rRef ? rReal : rRef;
+      const px = pcx_map + r * Math.cos(theta);
+      const py = pcy_map + r * Math.sin(theta);
+      if (i === 0) mc.moveTo(px, py); else mc.lineTo(px, py);
+    }
+    mc.closePath();
+    for (let i = NP; i >= 0; i--) {
+      const theta = ((i % NP) / NP) * 2 * Math.PI;
+      const px = pcx_map + avgRmap * Math.cos(theta);
+      const py = pcy_map + avgRmap * Math.sin(theta);
+      if (i === NP) mc.moveTo(px, py); else mc.lineTo(px, py);
+    }
+    mc.fillStyle = 'rgba(60,120,255,0.28)';
+    mc.fill('evenodd');
+    mc.restore();
+
+    // ② 기준원 — 평균 반경 (파란 파선)
     mc.save();
     mc.beginPath();
     mc.arc(pcx_map, pcy_map, avgRmap, 0, Math.PI*2);
     mc.strokeStyle = '#88AAFF';
     mc.lineWidth   = 1.2;
-    mc.globalAlpha = 0.80;
+    mc.globalAlpha = 0.85;
     mc.setLineDash([5, 3]);
     mc.stroke();
     mc.setLineDash([]);
     mc.restore();
 
-    // ② 실제 감지 윤곽 (분홍 실선)
+    // ③ 실제 감지 윤곽 — 편차 크기를 색으로 (빨강↔흰색↔파랑)
     mc.save();
-    mc.beginPath();
-    for (let i = 0; i <= NP; i++) {
-      const theta = ((i % NP) / NP) * 2 * Math.PI;
-      const rMap  = points[i % NP] / scale;
-      const px = pcx_map + rMap * Math.cos(theta);
-      const py = pcy_map + rMap * Math.sin(theta);
-      if (i === 0) mc.moveTo(px, py); else mc.lineTo(px, py);
+    mc.lineWidth = 2.2;
+    mc.globalAlpha = 0.95;
+    for (let i = 0; i < NP; i++) {
+      const theta0 = (i / NP) * 2 * Math.PI;
+      const theta1 = ((i+1) / NP) * 2 * Math.PI;
+      const r0 = points[i] / scale;
+      const r1 = points[(i+1) % NP] / scale;
+      const dev = deviations[i];
+      const t   = Math.min(Math.abs(dev) / (rmsDeviation * 3 + 0.1), 1);
+      // 편차 없음=흰색, 바깥=빨강, 안쪽=파랑
+      const col = dev > 0
+        ? `rgb(255,${Math.round(255*(1-t))},${Math.round(255*(1-t))})`
+        : `rgb(${Math.round(255*(1-t))},${Math.round(200*(1-t))},255)`;
+      mc.beginPath();
+      mc.moveTo(pcx_map + r0*Math.cos(theta0), pcy_map + r0*Math.sin(theta0));
+      mc.lineTo(pcx_map + r1*Math.cos(theta1), pcy_map + r1*Math.sin(theta1));
+      mc.strokeStyle = col;
+      mc.stroke();
     }
-    mc.closePath();
-    mc.strokeStyle = '#FF2D78';
-    mc.lineWidth   = 1.8;
-    mc.globalAlpha = 0.90;
-    mc.stroke();
     mc.restore();
 
-    // ③ 편차 막대 (5x 증폭, 밖=빨강/안=파랑, 5°마다)
+    // ④ 편차 막대 (12x 증폭, 2.5°마다)
     mc.save();
-    for (let ai = 0; ai < NP; ai += 10) { // 720방향 기준 5°마다
+    for (let ai = 0; ai < NP; ai += 4) {
       const dev = deviations[ai];
-      if (Math.abs(dev) < 0.2) continue;
+      if (Math.abs(dev) < 0.3) continue;
       const theta = (ai / NP) * 2 * Math.PI;
       const cosT = Math.cos(theta), sinT = Math.sin(theta);
       const r1 = avgRmap;
@@ -1772,14 +1827,14 @@ function _drawIrisColorMap() {
       mc.beginPath();
       mc.moveTo(pcx_map + r1*cosT, pcy_map + r1*sinT);
       mc.lineTo(pcx_map + r2*cosT, pcy_map + r2*sinT);
-      mc.strokeStyle  = dev > 0 ? '#FF4444' : '#4488FF';
-      mc.lineWidth    = 1.2;
-      mc.globalAlpha  = 0.72;
+      mc.strokeStyle = dev > 0 ? 'rgba(255,80,80,0.80)' : 'rgba(80,140,255,0.80)';
+      mc.lineWidth   = 1.5;
+      mc.globalAlpha = 1.0;
       mc.stroke();
     }
     mc.restore();
 
-    // ④ 최대 편차 방향 표시 (화살표 형태)
+    // ⑤ 최대 편차 방향 (황금색 굵은 선)
     mc.save();
     const thetaMax = (maxDevAngle / NP) * 2 * Math.PI;
     const r1m = avgRmap, r2m = avgRmap + (deviations[maxDevAngle] * AMPL) / scale;
@@ -1787,8 +1842,8 @@ function _drawIrisColorMap() {
     mc.moveTo(pcx_map + r1m*Math.cos(thetaMax), pcy_map + r1m*Math.sin(thetaMax));
     mc.lineTo(pcx_map + r2m*Math.cos(thetaMax), pcy_map + r2m*Math.sin(thetaMax));
     mc.strokeStyle = '#FFD700';
-    mc.lineWidth   = 2.5;
-    mc.globalAlpha = 0.95;
+    mc.lineWidth   = 3.0;
+    mc.globalAlpha = 1.0;
     mc.stroke();
     mc.restore();
 
