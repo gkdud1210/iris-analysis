@@ -62,10 +62,20 @@ def detect_pupil(gray):
     # 강한 블러로 반사광(하이라이트) 영향 최소화
     blurred = cv2.GaussianBlur(gray, (15, 15), 3)
 
+    # ── 반사광(glare) 인페인팅 ────────────────────────────────────────────────
+    glare_circle = np.zeros((h, w), dtype=np.uint8)
+    cv2.circle(glare_circle, (cx, cy), mn // 4, 255, -1)
+    center_vals = blurred[glare_circle > 0]
+    if len(center_vals):
+        dark_base    = float(np.percentile(center_vals, 10))
+        glare_thresh = min(200, dark_base * 4 + 50)
+        glare_mask   = ((blurred > glare_thresh) & (glare_circle > 0)).astype(np.uint8) * 255
+        if glare_mask.any():
+            blurred = cv2.inpaint(blurred, glare_mask, 9, cv2.INPAINT_TELEA)
+
     candidates = []
 
     # ── Seed 탐색: 이미지 중앙 절반 영역에서만 ──────────────────────────────
-    # 패딩 영역을 피해 실제 홍채가 있는 중앙부에서 가장 어두운 점을 seed로 사용
     margin = mn // 5
     center_blurred = blurred[margin: h - margin, margin: w - margin]
     center_min = np.min(center_blurred)
@@ -75,7 +85,6 @@ def detect_pupil(gray):
         thresh_seed = center_min + add_range
         ys_c, xs_c = np.where(center_blurred <= thresh_seed)
         if len(xs_c) > 0:
-            # 중심에 가장 가까운 점을 seed로
             dists = np.hypot(xs_c - (cx - margin), ys_c - (cy - margin))
             best_i = np.argmin(dists)
             sx = int(xs_c[best_i]) + margin
@@ -83,7 +92,7 @@ def detect_pupil(gray):
             if (sx, sy) not in seed_candidates:
                 seed_candidates.append((sx, sy))
 
-    # FloodFill 시도 (범람 허용 범위를 단계적으로 늘림)
+    # FloodFill 시도
     for seed in seed_candidates:
         for flood_range in [10, 20, 30, 45, 60]:
             img_tmp = blurred.copy()
@@ -481,8 +490,9 @@ def detect_local_anomalies(img_orig, pupil, iris, eyelid_mask=None):
 
     색소 반점 (Pigment Spot)
     ─────────────────────────
-    HSV 채도(S) Z-score: 홍채 평균 채도보다 2.2σ 이상 높은 구역
-    → 멜라닌 과침착은 채도가 높아지는 특성을 활용.
+    Black-hat (큰 커널) → 크립트보다 크고 균일하게 어두운 덩어리
+    → 멜라닌 과침착: 어둡고 내부가 균일한 원형/타원형 침착물
+    → 내부 분산이 낮은 것만 통과 (섬유 패턴 제거)
 
     반환: (crypt_mask, pigment_mask) — 원본 이미지 크기 이진 마스크
     """
@@ -516,25 +526,29 @@ def detect_local_anomalies(img_orig, pupil, iris, eyelid_mask=None):
     thr_bh    = max(thr_bh, 15)          # 절대값 하한: 너무 낮으면 노이즈
     _, crypt_raw = cv2.threshold(bhat, thr_bh, 255, cv2.THRESH_BINARY)
 
-    # ── 색소 반점: 채도 Z-score ──────────────────────────────────────────
-    hsv    = cv2.cvtColor(img_orig, cv2.COLOR_BGR2HSV)
-    sat    = hsv[:, :, 1].astype(np.float32)
-    iris_s = sat[donut > 0]
-    s_mean = iris_s.mean()
-    s_std  = max(float(iris_s.std()), 1.0)
-    s_z    = (sat - s_mean) / s_std
-    pigment_raw = ((s_z > 2.2) & (donut > 0)).astype(np.uint8) * 255
+    # ── 색소 반점: 크립트보다 큰 어두운 균일 덩어리 (black-hat, 큰 커널) ──
+    # 색소 반점 = 어둡고 크고 균일한 멜라닌 침착
+    # 크립트와의 차이: 더 크고, 내부가 균일하며, 윤곽이 부드러움
+    ksize_pg = max(17, int(ir * 0.16))
+    ksize_pg = ksize_pg if ksize_pg % 2 == 1 else ksize_pg + 1
+    k_pg     = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ksize_pg, ksize_pg))
+    bhat_pg  = cv2.morphologyEx(enh, cv2.MORPH_BLACKHAT, k_pg)
+    bhat_pg  = cv2.bitwise_and(bhat_pg, donut)
 
-    # ── 공통: 크기 필터 ─────────────────────────────────────────────────
-    # 최소: 너무 작은 노이즈 제거
-    # 최대: 눈꺼풀 그림자 등 큰 덩어리 제거
-    min_a = max(30, int(np.pi * (ir * 0.028) ** 2))   # 홍채반지름 2.8% 이상
-    max_a = int(np.pi * (ir * 0.18) ** 2)             # 홍채반지름 18% 이하
+    pg_vals = bhat_pg[donut > 0]
+    thr_pg  = float(np.percentile(pg_vals, 90)) if len(pg_vals) > 0 else 20
+    thr_pg  = max(thr_pg, 15)
+    _, pigment_raw = cv2.threshold(bhat_pg, thr_pg, 255, cv2.THRESH_BINARY)
+    pigment_raw = cv2.bitwise_and(pigment_raw, donut)
 
-    def _filter_blobs(mask, check_shape=False):
-        """크기 + 형태 필터링.
-        check_shape=True 이면 aspect ratio > 4인 긴 선(홍채 섬유)을 제거.
-        """
+    # ── 크기 기준 (크립트/색소 별도) ────────────────────────────────────
+    crypt_min_a = max(30,  int(np.pi * (ir * 0.028) ** 2))  # 크립트: 작아도 됨
+    crypt_max_a = int(np.pi * (ir * 0.12) ** 2)
+    pig_min_a   = max(60,  int(np.pi * (ir * 0.045) ** 2))  # 색소: 크립트보다 큼
+    pig_max_a   = int(np.pi * (ir * 0.45) ** 2)
+
+    def _filter_blobs(mask, min_a, max_a, check_shape=False, check_uniformity=False):
+        """크기 + 형태 + 균일도 필터링."""
         k5  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         m   = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k5)
         out = np.zeros_like(m)
@@ -546,13 +560,21 @@ def detect_local_anomalies(img_orig, pupil, iris, eyelid_mask=None):
             if check_shape and len(c) >= 5:
                 _, (ma, mi), _ = cv2.fitEllipse(c)
                 aspect = max(ma, mi) / (min(ma, mi) + 1e-6)
-                if aspect > 3.5:          # 길쭉한 섬유 제거
+                if aspect > 3.5:
                     continue
+            if check_uniformity:
+                blob_mask = np.zeros((h, w), dtype=np.uint8)
+                cv2.drawContours(blob_mask, [c], -1, 255, -1)
+                interior = enh[blob_mask > 0]
+                if len(interior) > 0 and float(interior.std()) > 35:
+                    continue   # 내부 불균일 → 섬유 패턴
             cv2.drawContours(out, [c], -1, 255, -1)
         return out
 
-    crypt_mask   = _filter_blobs(crypt_raw,   check_shape=True)
-    pigment_mask = _filter_blobs(pigment_raw, check_shape=False)
+    crypt_mask   = _filter_blobs(crypt_raw,   crypt_min_a, crypt_max_a,
+                                  check_shape=True,  check_uniformity=False)
+    pigment_mask = _filter_blobs(pigment_raw, pig_min_a,   pig_max_a,
+                                  check_shape=False, check_uniformity=True)
 
     # 눈꺼풀 마스크 제거
     if eyelid_mask is not None:
@@ -649,8 +671,8 @@ def iris_circle_crop(img, pupil, iris, size=PANEL_SIZE, bg=(15, 15, 15)):
 
 def diff_heatmap_circular(img, pupil, iris, diff_map, size=PANEL_SIZE, alpha=0.65):
     """
-    차이 맵(Rubber Sheet 좌표)을 원래 홍채 이미지 위에 컬러 히트맵으로 오버레이하고
-    원형 크롭하여 반환합니다.
+    차이 맵을 홍채 이미지 위에 오버레이.
+    역방향 매핑(image pixel → rubber-sheet coord)으로 빈틈 없는 dense 히트맵 생성.
     """
     if diff_map is None or pupil is None or iris is None:
         return iris_circle_crop(img, pupil, iris, size)
@@ -658,37 +680,93 @@ def diff_heatmap_circular(img, pupil, iris, diff_map, size=PANEL_SIZE, alpha=0.6
     px, py, pr = int(pupil[0]), int(pupil[1]), int(pupil[2])
     ix, iy, ir = int(iris[0]),  int(iris[1]),  int(iris[2])
     h_img, w_img = img.shape[:2]
-    lh, lw = diff_map.shape[:2]
+    # diff_map은 2D grayscale (NORM_H × NORM_W)
+    dm = diff_map if diff_map.ndim == 2 else cv2.cvtColor(diff_map, cv2.COLOR_BGR2GRAY)
+    lh, lw = dm.shape
 
-    # diff_map → 컬러 히트맵
-    normed = (np.clip(diff_map / (diff_map.max() + 1e-6), 0, 1) * 255).astype(np.uint8)
-    heat = cv2.applyColorMap(normed, cv2.COLORMAP_JET)  # (lh, lw, 3)
+    # ── 역방향 매핑: 원본 이미지 픽셀마다 rubber-sheet 좌표 계산 ────────────
+    ys, xs = np.mgrid[0:h_img, 0:w_img].astype(np.float32)
+    theta  = np.arctan2(ys - py, xs - px)          # [-π, π]
+    cos_t  = np.cos(theta)
+    sin_t  = np.sin(theta)
 
-    # 각 rubber-sheet 픽셀 → 원본 이미지 좌표로 역매핑
-    angles = np.linspace(0, 2*np.pi, lw, endpoint=False)
-    radii  = np.linspace(0, 1,        lh, endpoint=False)
-    A, R = np.meshgrid(angles, radii)   # (lh, lw)
+    # rubber-sheet 모델: P(r,θ) = (1-r)·pupil_edge(θ) + r·iris_edge(θ)
+    # ⟹ 역산: r = (pixel - pupil_edge) / (iris_edge - pupil_edge)  (각 성분)
+    denom_x = (ix - px) + (ir - pr) * cos_t
+    denom_y = (iy - py) + (ir - pr) * sin_t
+    safe_dx = np.where(np.abs(denom_x) > 0.5, denom_x, 1.0)
+    safe_dy = np.where(np.abs(denom_y) > 0.5, denom_y, 1.0)
+    r_x = np.where(np.abs(denom_x) > 0.5, (xs - px - pr * cos_t) / safe_dx, 0.5)
+    r_y = np.where(np.abs(denom_y) > 0.5, (ys - py - pr * sin_t) / safe_dy, 0.5)
+    r_norm = np.where(np.abs(denom_x) >= np.abs(denom_y), r_x, r_y)
 
+    # rubber-sheet column: θ → [0, lw)
+    theta_pos = (theta + 2 * np.pi) % (2 * np.pi)
+    rs_col = np.clip((theta_pos / (2 * np.pi) * lw).astype(np.int32), 0, lw - 1)
+    rs_row = np.clip((r_norm * lh).astype(np.int32), 0, lh - 1)
+
+    # 홍채 도넛 유효 영역
+    d_iris  = np.sqrt((xs - ix) ** 2 + (ys - iy) ** 2)
+    d_pupil = np.sqrt((xs - px) ** 2 + (ys - py) ** 2)
+    valid   = (d_iris <= ir) & (d_pupil >= pr) & (r_norm >= 0) & (r_norm <= 1.0)
+
+    # diff 값 조회 → colormap 적용
+    diff_vals = dm[rs_row, rs_col].astype(np.float32)
+    normed    = (np.clip(diff_vals / (dm.max() + 1e-6), 0, 1) * 255).astype(np.uint8)
+    heat_img  = cv2.applyColorMap(normed, cv2.COLORMAP_JET)  # (h_img, w_img, 3)
+
+    # 도넛 영역만 블렌딩
+    m3      = valid[:, :, None]
+    blended = cv2.addWeighted(img, 1 - alpha, heat_img, alpha, 0)
+    result  = np.where(m3, blended, img).astype(np.uint8)
+
+    return iris_circle_crop(result, pupil, iris, size)
+
+
+def self_heatmap_circular(img, pupil, iris, norm_rs, size=PANEL_SIZE, alpha=0.65):
+    """
+    Normal 홍채 자체 러버시트(norm_rs)를 CLAHE 후 JET 컬러맵으로 변환,
+    원본 홍채 좌표로 순방향 매핑 + dilation 갭 채우기.
+    diff_map을 전혀 사용하지 않으므로 target 정보가 섞이지 않음.
+    """
+    if norm_rs is None or pupil is None or iris is None:
+        return iris_circle_crop(img, pupil, iris, size)
+
+    px, py, pr = int(pupil[0]), int(pupil[1]), int(pupil[2])
+    ix, iy, ir = int(iris[0]),  int(iris[1]),  int(iris[2])
+    h_img, w_img = img.shape[:2]
+
+    # 러버시트 → grayscale → CLAHE로 텍스처 강조
+    rs_gray = cv2.cvtColor(norm_rs, cv2.COLOR_BGR2GRAY) if norm_rs.ndim == 3 else norm_rs
+    clahe   = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 4))
+    rs_eq   = clahe.apply(rs_gray)                          # (H=64, W=360)
+    lh, lw  = rs_eq.shape
+
+    heat = cv2.applyColorMap(rs_eq, cv2.COLORMAP_JET)      # (64, 360, 3)
+
+    # 순방향 매핑: 러버시트 픽셀 → 원본 이미지 좌표
+    angles = np.linspace(0, 2 * np.pi, lw, endpoint=False)
+    radii  = np.linspace(0, 1,          lh, endpoint=False)
+    A, R   = np.meshgrid(angles, radii)
     SX = ((1-R)*(px + pr*np.cos(A)) + R*(ix + ir*np.cos(A))).astype(int)
     SY = ((1-R)*(py + pr*np.sin(A)) + R*(iy + ir*np.sin(A))).astype(int)
-
-    valid = (SX >= 0) & (SX < w_img) & (SY >= 0) & (SY < h_img)
-    ys_rs, xs_rs = np.where(valid)
-    sx_v = SX[ys_rs, xs_rs]
-    sy_v = SY[ys_rs, xs_rs]
-    colors = heat[ys_rs, xs_rs]  # (N, 3)
-
+    ok = (SX >= 0) & (SX < w_img) & (SY >= 0) & (SY < h_img)
+    ys_ok, xs_ok = np.where(ok)
     heat_img = np.zeros_like(img)
-    heat_img[sy_v, sx_v] = colors
+    heat_img[SY[ys_ok, xs_ok], SX[ys_ok, xs_ok]] = heat[ys_ok, xs_ok]
 
-    # 홍채 도넛 마스크 (홍채 영역에만 적용)
-    iris_mask = np.zeros((h_img, w_img), dtype=np.uint8)
-    cv2.circle(iris_mask, (ix, iy), ir, 255, -1)
-    cv2.circle(iris_mask, (px, py), pr, 0,   -1)
-    m3 = iris_mask[:, :, None].astype(bool)
+    # 갭 채우기 (러버시트 샘플링 간격 ~3px 이므로 7×7 dilation)
+    kd = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    for ch in range(3):
+        heat_img[:, :, ch] = cv2.dilate(heat_img[:, :, ch], kd)
 
+    # 홍채 도넛 마스크만 블렌딩
+    donut = np.zeros((h_img, w_img), dtype=np.uint8)
+    cv2.circle(donut, (ix, iy), ir, 255, -1)
+    cv2.circle(donut, (px, py), pr, 0,   -1)
+    m3      = donut[:, :, None].astype(bool)
     blended = cv2.addWeighted(img, 1 - alpha, heat_img, alpha, 0)
-    result = np.where(m3, blended, img)
+    result  = np.where(m3, blended, img).astype(np.uint8)
 
     return iris_circle_crop(result, pupil, iris, size)
 
@@ -938,38 +1016,64 @@ def run_comparison(normal_path, target_path, output_path=None, threshold=55):
                       f"[4] Crypt={n_dark}  Pigment={n_bright}", PS,
                       label_color=(0, 220, 220), show_circles=True)
     c5 = diff_heatmap_circular(img_t, pupil_t, iris_t, diff_map, PS)
-    # c5에 감지 원 + 레이블 추가
-    if iris_t is not None:
-        cv2.circle(c5, _scaled_center(iris_t,  img_t, PS), _scaled_r(iris_t,  img_t, PS),
-                   (0, 220, 80),  2, cv2.LINE_AA)
-    if pupil_t is not None:
-        cv2.circle(c5, _scaled_center(pupil_t, img_t, PS), _scaled_r(pupil_t, img_t, PS),
-                   (80, 130, 255), 2, cv2.LINE_AA)
+    # _crop_transform: iris_circle_crop 크롭 후 좌표 변환 (단순 스케일 X)
+    ic5, ir5 = _crop_transform(iris_t,  iris_t, img_t, PS)
+    pc5, pr5 = _crop_transform(pupil_t, iris_t, img_t, PS)
+    if ic5 is not None:
+        cv2.circle(c5, ic5, ir5, (0, 220, 80),   2, cv2.LINE_AA)
+    if pc5 is not None:
+        cv2.circle(c5, pc5, pr5, (80, 130, 255), 2, cv2.LINE_AA)
     cv2.rectangle(c5, (0, PS-38), (PS, PS), (18, 18, 18), -1)
-    cv2.putText(c5, f"[5] Heatmap  Similarity {similarity:.1f}%",
-                (8, PS-12), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 220, 180), 2, cv2.LINE_AA)
+    cv2.putText(c5, f"[5] Heatmap (Target)  Sim {similarity:.1f}%",
+                (8, PS-12), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 220, 180), 2, cv2.LINE_AA)
 
-    # 정상과 대상을 나란히 CLAHE (텍스처 비교)
-    _, eq_pair = structural_diff(norm_t, norm_n)
-    if eq_pair:
-        t_eq_full, n_eq_full = eq_pair
-        # rubber-sheet → 원형 역매핑으로 CLAHE 결과를 원형으로 보여주기는
-        # 복잡하므로, 패널에 rect strip 2개를 세로로 쌓아서 보여줌
-        strip_h = PS // 2 - 2
-        sn = cv2.resize(n_eq_full, (PS, strip_h))
-        st = cv2.resize(t_eq_full, (PS, strip_h))
-        cv2.putText(sn, "[6] Normal (CLAHE)", (6, 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1, cv2.LINE_AA)
-        cv2.putText(st, "    Target (CLAHE)", (6, 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200,200,200), 1, cv2.LINE_AA)
-        sep = np.full((4, PS, 3), (60, 60, 60), dtype=np.uint8)
-        c6 = np.vstack([sn, sep, st])
-        c6 = cv2.resize(c6, (PS, PS))
-    else:
-        c6 = np.zeros((PS, PS, 3), dtype=np.uint8)
+    # c6: Normal 자체 러버시트 기반 히트맵 (diff_map 미사용 — target 무관)
+    c6 = self_heatmap_circular(img_n, pupil_n, iris_n, norm_n, PS, alpha=0.65)
+    ic6, ir6 = _crop_transform(iris_n,  iris_n, img_n, PS)
+    pc6, pr6 = _crop_transform(pupil_n, iris_n, img_n, PS)
+    if ic6 is not None:
+        cv2.circle(c6, ic6, ir6, (0, 220, 80),   2, cv2.LINE_AA)
+    if pc6 is not None:
+        cv2.circle(c6, pc6, pr6, (80, 130, 255), 2, cv2.LINE_AA)
+    cv2.rectangle(c6, (0, PS-38), (PS, PS), (18, 18, 18), -1)
+    cv2.putText(c6, "[6] Normal  (self heatmap)",
+                (8, PS-12), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 220, 180), 2, cv2.LINE_AA)
+
     row2 = np.hstack([c4, c5, c6])
 
     W_total = PS * 3
+
+    # ── Row 3: Rubber Sheet 전체 너비 비교 스트립 ────────────────────────────
+    def _rubber_sheet_row(n_rs, t_rs, d_map, total_w, sh=90):
+        """Normal RS / Target RS / Diff 히트맵 세 줄 비교."""
+        def to_bgr_strip(rs):
+            if rs is None:
+                return np.zeros((sh, total_w, 3), dtype=np.uint8)
+            r = cv2.resize(rs, (total_w, sh))
+            return r if r.ndim == 3 else cv2.cvtColor(r, cv2.COLOR_GRAY2BGR)
+
+        sn = to_bgr_strip(n_rs)
+        st = to_bgr_strip(t_rs)
+        # diff_map은 grayscale(2D)
+
+        if d_map is not None:
+            normed = (np.clip(d_map.astype(np.float32) / 255.0, 0, 1) * 255).astype(np.uint8)
+            sd = cv2.applyColorMap(cv2.resize(normed, (total_w, sh)), cv2.COLORMAP_JET)
+        else:
+            sd = np.zeros((sh, total_w, 3), dtype=np.uint8)
+
+        for strip, text in [
+            (sn, "Normal  (Rubber Sheet — iris unrolled 0° → 360°)"),
+            (st, "Target  (Rubber Sheet)"),
+            (sd, "Structural Diff  [ blue = similar    red = different ]"),
+        ]:
+            cv2.putText(strip, text, (8, 20), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.46, (240, 240, 100), 1, cv2.LINE_AA)
+        sep = np.full((2, total_w, 3), (55, 55, 55), dtype=np.uint8)
+        return np.vstack([sn, sep, st, sep, sd])
+
+    row3 = _rubber_sheet_row(norm_n, norm_t, diff_map, W_total, sh=90)
+
     bar_img = _sector_bar(sectors, W_total, 100, thresh_sec)
 
     # 범례
@@ -985,7 +1089,7 @@ def run_comparison(normal_path, target_path, output_path=None, threshold=55):
     cv2.putText(title, f"Iris Comparison:  {tname}",
                 (12, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.82, (0, 220, 180), 2, cv2.LINE_AA)
 
-    final = np.vstack([title, row1, row2, bar_img, legend])
+    final = np.vstack([title, row1, row2, row3, bar_img, legend])
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     if output_path is None:
