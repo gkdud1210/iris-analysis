@@ -894,11 +894,64 @@ def api_eyelid_detect(image_id):
         return jsonify({"error": str(e)}), 500
 
 
+# ─── API: 정상 홍채 비교 ────────────────────────────────────────────────────────
+
+COMPARE_DIR = os.path.join(BASE_DIR, "comparison_results")
+os.makedirs(COMPARE_DIR, exist_ok=True)
+
+DEFAULT_NORMAL_PATH = os.path.join(UPLOAD_FOLDER, "4ed79692b3fc4ed3aeb7c6e9a80527bc.png")
+
+
+@app.route("/api/compare/<int:image_id>", methods=["POST"])
+def api_compare(image_id):
+    image = IrisImage.query.get_or_404(image_id)
+
+    # file_path가 구 서버 경로일 수 있으므로 filename 기준으로 로컬 경로 재구성
+    local_path = os.path.join(UPLOAD_FOLDER, image.filename)
+    if not os.path.exists(local_path):
+        # file_path 그대로 시도
+        local_path = image.file_path
+    if not os.path.exists(local_path):
+        return jsonify({"error": "이미지 파일을 찾을 수 없습니다"}), 404
+
+    body = request.get_json(silent=True, force=True) or {}
+    normal_path = body.get("normal_path", DEFAULT_NORMAL_PATH)
+    if not os.path.exists(normal_path):
+        return jsonify({"error": f"정상 홍채 이미지를 찾을 수 없습니다: {normal_path}"}), 404
+
+    try:
+        from iris_compare import run_comparison
+        stem = os.path.splitext(image.filename)[0]
+        out_path = os.path.join(COMPARE_DIR, f"compare_{stem}.png")
+        result = run_comparison(
+            normal_path=normal_path,
+            target_path=local_path,
+            output_path=out_path,
+        )
+        return jsonify({
+            "success": True,
+            "result_url": f"/comparison_results/compare_{stem}.png",
+            "similarity": result.get("similarity"),
+            "n_lesions":  result.get("n_lesions"),
+            "n_crypts":   result.get("n_crypts"),
+            "n_spots":    result.get("n_spots"),
+            "sectors":    result.get("sectors", []),
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "detail": traceback.format_exc()}), 500
+
+
 # ─── Static ───────────────────────────────────────────────────────────────────
 
 @app.route("/uploads/<filename>")
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
+
+
+@app.route("/comparison_results/<filename>")
+def comparison_file(filename):
+    return send_from_directory(COMPARE_DIR, filename)
 
 
 if __name__ == "__main__":

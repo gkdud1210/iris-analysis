@@ -111,6 +111,7 @@ class Label(db.Model):
             "confidence": self.confidence,
             "notes": self.notes,
             "geometry": self.geometry_parsed,
+
             "labeled_at": self.labeled_at.isoformat(),
         }
 

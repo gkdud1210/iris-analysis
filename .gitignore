@@ -40,3 +40,9 @@ exports/
 # Logs
 *.log
 /tmp/
+
+# Comparison result images (generated output)
+comparison_results/
+
+# Backup files
+*.bak*

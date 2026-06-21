@@ -19,7 +19,7 @@
 </div>
 
 <div class="row g-3">
-  <!-- 이미지 + 분석 실행 -->
+  <!-- 이미지 + AI 분석 실행 -->
   <div class="col-md-5">
     <div class="card mb-3">
       <div class="card-body text-center p-2">
@@ -28,7 +28,7 @@
     </div>
 
     <div class="card">
-      <div class="card-header"><i class="bi bi-cpu me-2"></i>AI 분석 실행</div>
+      <div class="card-header"><i class="bi bi-cpu me-2"></i>AI 분류 분석</div>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">학습 모델 선택</label>
@@ -58,10 +58,10 @@
     </div>
   </div>
 
-  <!-- 분석 결과 -->
+  <!-- AI 분류 결과 -->
   <div class="col-md-7">
     <div class="card mb-3">
-      <div class="card-header"><i class="bi bi-bar-chart me-2"></i>분석 결과</div>
+      <div class="card-header"><i class="bi bi-bar-chart me-2"></i>분류 결과</div>
       <div class="card-body">
         <div id="analysisResult">
           <p class="text-muted small">분석 버튼을 클릭하면 결과가 표시됩니다.</p>
@@ -98,6 +98,68 @@
     </div>
     {% endif %}
   </div>
+
+  <!-- ── 정상 홍채 비교 분석 ──────────────────────────────────────────── -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-eye-fill me-2" style="color:#60a5fa"></i>정상 홍채 비교 분석</span>
+        <button id="compareBtn" class="btn btn-sm btn-info">
+          <i class="bi bi-play-fill me-1"></i>비교 시작
+        </button>
+      </div>
+      <div class="card-body">
+
+        <!-- 힌트 -->
+        <p id="compareHint" class="text-muted small mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          정상 홍채(기준)와 이 이미지를 이미지 처리 방식으로 비교해 병소·크립트·색소 반점을 감지합니다.
+          눈꺼풀 영역을 제외하려면 먼저
+          <a href="/label/{{ image.id }}" class="link-warning">라벨링 도구</a>에서
+          <strong>눈꺼풀 위/아래</strong> 카테고리로 폴리곤을 그려두세요.
+        </p>
+
+        <!-- 진행 상태 -->
+        <div id="compareStatus"></div>
+
+        <!-- 요약 수치 -->
+        <div id="compareStats" class="d-none mb-3">
+          <div class="row g-2">
+            <div class="col-4">
+              <div class="text-center p-2 rounded" style="background:var(--card-bg)">
+                <div id="statSim" class="fw-bold fs-4" style="color:#34d399">—</div>
+                <div class="text-muted" style="font-size:0.72rem">구조 유사도</div>
+              </div>
+            </div>
+            <div class="col-4">
+              <div class="text-center p-2 rounded" style="background:var(--card-bg)">
+                <div id="statLesion" class="fw-bold fs-4" style="color:#f87171">—</div>
+                <div class="text-muted" style="font-size:0.72rem">구조 이상 영역</div>
+              </div>
+            </div>
+            <div class="col-4">
+              <div class="text-center p-2 rounded" style="background:var(--card-bg)">
+                <div id="statAnom" class="fw-bold fs-4" style="color:#60a5fa">—</div>
+                <div class="text-muted" style="font-size:0.72rem">크립트+색소 반점</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 결과 이미지 -->
+        <div id="compareImgWrap" class="d-none text-center">
+          <img id="compareImg" src="" class="img-fluid rounded"
+               style="max-width:100%;border:1px solid var(--border);cursor:zoom-in"
+               onclick="window.open(this.src,'_blank')" title="클릭하면 원본 크기로 열림">
+          <div class="text-muted mt-1" style="font-size:0.72rem">
+            <i class="bi bi-zoom-in me-1"></i>이미지를 클릭하면 원본 크기로 볼 수 있습니다
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
 </div>
 {% endblock %}
 
@@ -106,6 +168,7 @@
 const IMAGE_ID = {{ image.id }};
 let resultChart = null;
 
+// ── AI 분류 분석 ──────────────────────────────────────────────────────────────
 document.getElementById('analyzeBtn').addEventListener('click', async () => {
   const sessionId = document.getElementById('sessionSelect').value;
   const btn = document.getElementById('analyzeBtn');
@@ -122,10 +185,10 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
     toast('분석 완료!', 'success');
   } catch (e) {
     document.getElementById('analysisResult').innerHTML = '';
-    document.getElementById('analyzeStatus').innerHTML = `<div class="alert alert-danger py-2 small">${esc(e.message)}</div>`;
+    document.getElementById('analyzeStatus').innerHTML =
+      `<div class="alert alert-danger py-2 small">${esc(e.message)}</div>`;
     toast('분석 실패: ' + e.message, 'error');
   }
-
   btn.disabled = false;
   btn.innerHTML = '<i class="bi bi-play-fill me-2"></i>분석 시작';
 });
@@ -133,7 +196,6 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
 function showResults(predictions) {
   const container = document.getElementById('analysisResult');
   const top = predictions[0];
-
   container.innerHTML = `
     <div class="top-pred-banner">
       <i class="bi bi-trophy-fill icon"></i>
@@ -153,8 +215,6 @@ function showResults(predictions) {
       </div>
     `).join('')}
   `;
-
-  // Chart
   const canvas = document.getElementById('resultChart');
   canvas.classList.remove('d-none');
   if (resultChart) resultChart.destroy();
@@ -166,13 +226,10 @@ function showResults(predictions) {
         label: '확률 (%)',
         data: predictions.map(p => (p.probability * 100).toFixed(2)),
         backgroundColor: predictions.map((_, i) =>
-          i === 0 ? 'rgba(52,211,153,0.7)' : 'rgba(56,189,248,0.45)'
-        ),
+          i === 0 ? 'rgba(52,211,153,0.7)' : 'rgba(56,189,248,0.45)'),
         borderColor: predictions.map((_, i) =>
-          i === 0 ? '#34D399' : '#38BDF8'
-        ),
-        borderWidth: 1.5,
-        borderRadius: 5,
+          i === 0 ? '#34D399' : '#38BDF8'),
+        borderWidth: 1.5, borderRadius: 5,
       }]
     },
     options: {
@@ -188,5 +245,62 @@ function showResults(predictions) {
     }
   });
 }
+
+// ── 정상 홍채 비교 ────────────────────────────────────────────────────────────
+document.getElementById('compareBtn').addEventListener('click', async () => {
+  const btn      = document.getElementById('compareBtn');
+  const status   = document.getElementById('compareStatus');
+  const stats    = document.getElementById('compareStats');
+  const imgWrap  = document.getElementById('compareImgWrap');
+  const hint     = document.getElementById('compareHint');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>분석 중...';
+  status.innerHTML = `
+    <div class="alert alert-info py-2 small d-flex align-items-center gap-2">
+      <span class="spinner-border spinner-border-sm"></span>
+      홍채 감지 → Rubber Sheet 변환 → 병소 분석 중... (10~30초 소요)
+    </div>`;
+  stats.classList.add('d-none');
+  imgWrap.classList.add('d-none');
+  hint.classList.add('d-none');
+
+  try {
+    const data = await api.post(`/api/compare/${IMAGE_ID}`, {});
+
+    // 수치 표시
+    document.getElementById('statSim').textContent =
+      data.similarity != null ? data.similarity.toFixed(1) + '%' : '—';
+    document.getElementById('statLesion').textContent =
+      data.n_lesions != null ? data.n_lesions + '개' : '—';
+    document.getElementById('statAnom').textContent =
+      (data.n_crypts != null && data.n_spots != null)
+        ? (data.n_crypts + data.n_spots) + '개'
+        : '—';
+    stats.classList.remove('d-none');
+
+    // 결과 이미지 (캐시 방지 쿼리스트링)
+    const img = document.getElementById('compareImg');
+    img.src = data.result_url + '?t=' + Date.now();
+    imgWrap.classList.remove('d-none');
+
+    status.innerHTML = `
+      <div class="alert alert-success py-2 small mb-3">
+        <i class="bi bi-check-circle me-1"></i>비교 완료
+      </div>`;
+    toast('정상 홍채 비교 완료!', 'success');
+
+  } catch (e) {
+    status.innerHTML = `
+      <div class="alert alert-danger py-2 small">
+        <i class="bi bi-x-circle me-1"></i>${esc(e.message)}
+      </div>`;
+    hint.classList.remove('d-none');
+    toast('비교 실패: ' + e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>다시 비교';
+});
 </script>
 {% endblock %}
